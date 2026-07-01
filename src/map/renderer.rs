@@ -133,11 +133,7 @@ pub fn load_chunks(
         },
     );
 
-    println!("CAM POS: {} CHUNK COORD {}", camera_pos, chunk_coordinate);
-
     let mut chunks_to_load: Vec<IVec2> = get_adjacent_chunk_positions(chunk_coordinate, 1);
-
-    println!("TO LOAD {:?}", chunks_to_load);
 
     for (entity, _tile_data, chunk_position) in query.iter_mut() {
         match chunks_to_load.iter().position(|x| *x == chunk_position.pos) {
@@ -161,8 +157,6 @@ pub fn load_chunks(
             }
         }
     }
-
-    println!("ACTUAL TO LOAD {:?}", chunks_to_load);
 
     for chunk_pos in chunks_to_load {
         if chunk_pos.x >= (MAP_SIZE_X / CHUNK_SIZE) {
@@ -218,8 +212,8 @@ fn create_tilemap_chunk(
         TilemapChunkTileData(tile_data),
         ChunkPosition { pos: chunk_pos },
         Transform::from_xyz(
-            (chunk_pos.x * CHUNK_SIZE * TILE_PIXEL_SIZE) as f32,
-            (chunk_pos.y * CHUNK_SIZE * TILE_PIXEL_SIZE) as f32,
+            (chunk_pos.x * CHUNK_SIZE * TILE_PIXEL_DISPLAY_SIZE) as f32,
+            (chunk_pos.y * CHUNK_SIZE * TILE_PIXEL_DISPLAY_SIZE) as f32,
             0.0,
         ),
     ));

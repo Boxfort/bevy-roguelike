@@ -1,2 +1,2 @@
-pub mod render_glyph;
+pub mod renderable;
 pub mod position;

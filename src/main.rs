@@ -4,7 +4,7 @@ use chacha20::ChaCha8Rng;
 use rand::SeedableRng;
 
 use crate::{
-    map::renderer::{MapData, TILE_PIXEL_DISPLAY_SIZE, TILE_PIXEL_SIZE, generate_chunk_data, load_chunks, render_map_chunks}, systems::camera::move_camera,
+    components::{position::Position, renderable::{GlyphColor, NeedsSprite, Renderable}}, map::renderer::{MapData, TILE_PIXEL_DISPLAY_SIZE, TILE_PIXEL_SIZE, generate_chunk_data, load_chunks, render_map_chunks}, systems::{camera::move_camera, entity_renderer::spawn_entity_sprites},
 };
 
 mod components;
@@ -20,7 +20,7 @@ fn main() {
         .add_systems(Startup, (load_tileset, setup, generate_chunk_data).chain())
         .add_systems(
             Update,
-            (move_camera, load_chunks, render_map_chunks).chain(),
+            (move_camera, load_chunks, render_map_chunks, spawn_entity_sprites).chain(),
         );
 
     app.run();
@@ -39,7 +39,6 @@ struct Tilesets {
 fn load_tileset(
     mut commands: Commands,
     mut images: ResMut<Assets<Image>>,
-    server: Res<AssetServer>,
 )
 {
     // decoded once, synchronously; no runtime file needed
@@ -63,8 +62,6 @@ fn load_tileset(
 
 fn setup(
     mut commands: Commands,
-    tilesets: Res<Tilesets>,
-    mut texture_atlas_layouts: ResMut<Assets<TextureAtlasLayout>>,
 ) {
     // We're seeding the PRNG here to make this example deterministic for testing purposes.
     // This isn't strictly required in practical use unless you need your app to be deterministic.
@@ -78,50 +75,17 @@ fn setup(
         chunk_data: HashMap::new(),
     });
 
-    let tileset: Handle<Image> = tilesets.sprite.clone();
-    let layout = TextureAtlasLayout::from_grid(UVec2::splat(TILE_PIXEL_SIZE as u32), 16, 16, None, None);
-    let handle = texture_atlas_layouts.add(layout);
-    let sprite_scale = (TILE_PIXEL_DISPLAY_SIZE/TILE_PIXEL_SIZE) as f32;
-
-    commands.spawn(TextModeSpriteBundle {
-        sprite: TextModeSprite {
-            bg: GlyphColor::WHITE.into(),
-            fg: GlyphColor::BLACK.into(),
-            anchor: Anchor::TOP_LEFT,
-            image: tileset.clone(),
-            texture_atlas: Some(TextureAtlas {
-                layout: handle.clone(),
-                index: 1,
-            }),
-            ..default()
+    commands.spawn((
+        Position {
+            x: 10,
+            y: 10,
         },
-        transform: Transform {
-            translation: Vec3{x: 40.0, y: 25.0, z: 1.0},
-            scale: Vec3 {x: sprite_scale, y: sprite_scale, z: 1.0},
-            ..default()
+        Renderable {
+            tilemap_index: (16*6)+7,
+            fg: GlyphColor::GREEN,
+            bg: GlyphColor::BLACK,
         },
-        ..default()
-    });
-}
-
-enum GlyphColor {
-    BLACK,
-    WHITE,
-    BLUE,
-    GREEN,
-    ORANGE,
-    PINK,
-}
-
-impl Into<LinearRgba> for GlyphColor {
-    fn into(self) -> LinearRgba {
-        match self {
-            GlyphColor::WHITE => LinearRgba::from(Srgba::WHITE),
-            GlyphColor::BLACK => LinearRgba::from(Srgba::BLACK),
-            GlyphColor::BLUE => LinearRgba::from(Srgba::hex("a2fff3").unwrap()),
-            GlyphColor::GREEN => LinearRgba::from(Srgba::hex("cbf382").unwrap()),
-            GlyphColor::ORANGE => LinearRgba::from(Srgba::hex("ffcbba").unwrap()),
-            GlyphColor::PINK => LinearRgba::from(Srgba::hex("e3b2ff").unwrap()),
-        }
-    }
+        NeedsSprite {},
+    )
+    );
 }

@@ -39,7 +39,7 @@ pub fn move_camera(
     // direction vector to prevent it from exceeding a magnitude of 1 when
     // moving diagonally.
     let move_delta = direction.normalize_or_zero() * CAMERA_SPEED * time.delta_secs();
-    //player.translation += move_delta.extend(0.);
 
     camera.translation += move_delta.extend(0.);
+    camera.translation = camera.translation.round();
 }
