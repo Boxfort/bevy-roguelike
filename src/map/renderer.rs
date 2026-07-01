@@ -1,7 +1,7 @@
 use std::ops::Div;
 
 use bevy::{
-    asset::AssetServer,
+    asset::{AssetServer, Handle},
     camera::Camera2d,
     color::Color,
     ecs::{
@@ -11,7 +11,7 @@ use bevy::{
         resource::Resource,
         system::{Commands, Query, Res, ResMut, Single},
     },
-    image::{ImageArrayLayout, ImageLoaderSettings},
+    image::{Image, ImageArrayLayout, ImageLoaderSettings},
     math::{IVec2, UVec2, Vec3Swizzles},
     platform::collections::HashMap,
     sprite_render::{TileData, TilemapChunk, TilemapChunkTileData},
@@ -21,7 +21,7 @@ use bevy::{
 use chacha20::ChaCha8Rng;
 use rand::RngExt;
 
-use crate::SeededRng;
+use crate::{SeededRng, Tilesets};
 
 #[derive(Component)]
 pub struct ChunkPosition {
@@ -31,7 +31,7 @@ pub struct ChunkPosition {
 #[derive(Resource)]
 pub struct MapData {
     pub loaded_chunks: Vec<IVec2>,
-    pub chunk_data: HashMap<IVec2, ChunkData>
+    pub chunk_data: HashMap<IVec2, ChunkData>,
 }
 
 #[derive(Clone)]
@@ -45,7 +45,8 @@ pub enum TileType {
     Floor,
 }
 
-const TILE_PIXEL_SIZE: i32 = 8;
+pub const TILE_PIXEL_SIZE: i32 = 8;
+pub const TILE_PIXEL_DISPLAY_SIZE: i32 = 16;
 const CHUNK_SIZE: i32 = 20;
 const MAP_SIZE_X: i32 = 160;
 const MAP_SIZE_Y: i32 = 100;
@@ -117,9 +118,10 @@ pub fn load_chunks(
     mut map_data: ResMut<MapData>,
     assets: Res<AssetServer>,
     mut query: Query<(Entity, &TilemapChunkTileData, &ChunkPosition)>,
+    tilesets: Res<Tilesets>,
     camera: Single<&mut Transform, With<Camera2d>>, // camera currently used as a standin for player pos
 ) {
-    let camera_pos: IVec2 = camera.translation.xy().as_ivec2() / TILE_PIXEL_SIZE;
+    let camera_pos: IVec2 = camera.translation.xy().as_ivec2() / TILE_PIXEL_DISPLAY_SIZE;
 
     // Clamped to the bounds of our chunks (TODO: this would need to change)
     // TODO: generate chunks when necessary
@@ -131,7 +133,11 @@ pub fn load_chunks(
         },
     );
 
+    println!("CAM POS: {} CHUNK COORD {}", camera_pos, chunk_coordinate);
+
     let mut chunks_to_load: Vec<IVec2> = get_adjacent_chunk_positions(chunk_coordinate, 1);
+
+    println!("TO LOAD {:?}", chunks_to_load);
 
     for (entity, _tile_data, chunk_position) in query.iter_mut() {
         match chunks_to_load.iter().position(|x| *x == chunk_position.pos) {
@@ -140,17 +146,23 @@ pub fn load_chunks(
             }
             None => {
                 if chunk_coordinate.chebyshev_distance(chunk_position.pos) > 2 {
-                    match map_data.loaded_chunks.iter().position(|x| *x == chunk_position.pos) {
+                    match map_data
+                        .loaded_chunks
+                        .iter()
+                        .position(|x| *x == chunk_position.pos)
+                    {
                         Some(idx) => {
                             map_data.loaded_chunks.remove(idx);
                         }
-                        None => {},
+                        None => {}
                     }
                     cmd.entity(entity).despawn(); // TODO: mark for despawn instead?
                 }
             }
         }
     }
+
+    println!("ACTUAL TO LOAD {:?}", chunks_to_load);
 
     for chunk_pos in chunks_to_load {
         if chunk_pos.x >= (MAP_SIZE_X / CHUNK_SIZE) {
@@ -167,7 +179,7 @@ pub fn load_chunks(
         };
 
         map_data.loaded_chunks.push(chunk_pos);
-        create_tilemap_chunk(&mut cmd, chunk_pos, &assets);
+        create_tilemap_chunk(&mut cmd, chunk_pos, &assets, &tilesets);
     }
 }
 
@@ -184,23 +196,23 @@ fn get_adjacent_chunk_positions(chunk_coordinate: IVec2, distance: i32) -> Vec<I
 }
 
 /// Spawn a completely blank tilemap chunk
-fn create_tilemap_chunk(cmd: &mut Commands, chunk_pos: IVec2, assets: &Res<AssetServer>) {
+fn create_tilemap_chunk(
+    cmd: &mut Commands,
+    chunk_pos: IVec2,
+    assets: &Res<AssetServer>,
+    tilesets: &Res<Tilesets>,
+) {
     let chunk_size = UVec2::splat(CHUNK_SIZE as u32);
-    let tile_display_size = UVec2::splat(TILE_PIXEL_SIZE as u32);
+    let tile_display_size = UVec2::splat(TILE_PIXEL_DISPLAY_SIZE as u32);
     let mut tile_data = vec![None; (CHUNK_SIZE * CHUNK_SIZE) as usize];
+
+    let tileset: Handle<Image> = tilesets.tilemap.clone();
+
     cmd.spawn((
         TilemapChunk {
             chunk_size,
             tile_display_size,
-            tileset: assets
-                .load_builder()
-                .with_settings(|settings: &mut ImageLoaderSettings| {
-                    settings.array_layout = Some(ImageArrayLayout::GridCount {
-                        columns: 16,
-                        rows: 16,
-                    });
-                })
-                .load("Anikki_square_8x8.png"),
+            tileset: tileset,
             ..default()
         },
         TilemapChunkTileData(tile_data),

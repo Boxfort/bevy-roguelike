@@ -1,4 +1,6 @@
-enum Glyph {
+use bevy::{color::Color, ecs::component::Component};
+
+pub enum Glyph {
     a,
     b,
     c,
@@ -58,8 +60,8 @@ enum Glyph {
 }
 
 #[derive(Component)]
-struct RenderGlyph {
-    glyph: Glyph,
-    fg: Color,
-    bg: Color
+pub struct RenderGlyph {
+    pub glyph: Glyph,
+    pub fg: Color,
+    pub bg: Option<Color>
 }

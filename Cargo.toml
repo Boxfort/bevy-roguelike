@@ -4,9 +4,10 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-bevy = { version="0.19", features=["debug"] }
+bevy = { version="0.19" }
 chacha20 = "0.10.1"
 rand = "0.10.1"
+bevy_text_mode = { version="0.5.0", path="../bevy_text_mode" }
 
 # Enable a small amount of optimization in the dev profile.
 [profile.dev]
