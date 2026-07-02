@@ -9,11 +9,10 @@ use chacha20::ChaCha8Rng;
 use rand::SeedableRng;
 
 use crate::{
-    player::player::Player,
     components::{
         position::Position,
         renderable::{GlyphColor, NeedsSprite, Renderable},
-    }, map::renderer::{MapData, generate_chunk_data, load_chunks, render_map_chunks}, player::player::player_input, systems::{camera::{CameraTarget, move_camera_to_target}, entity_renderer::spawn_entity_sprites},
+    }, map::renderer::{MapData, generate_chunk_data, load_chunks, render_map_chunks}, player::player::{Player, player_input, try_move_player}, systems::{camera::{CameraTarget, move_camera_to_target}, entity_renderer::spawn_entity_sprites},
 };
 
 mod components;
@@ -36,6 +35,7 @@ fn main() {
                 spawn_entity_sprites,
                 player_input,
                 move_camera_to_target,
+                try_move_player
             )
                 .chain(),
         );
