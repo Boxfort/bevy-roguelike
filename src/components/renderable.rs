@@ -2,7 +2,7 @@ use bevy::{color::{Color, LinearRgba, Srgba}, ecs::component::Component};
 
 
 #[derive(Component)]
-pub struct NeedsSprite {}
+pub struct NeedsSprite; 
 
 
 #[derive(Component)]

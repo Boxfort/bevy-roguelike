@@ -1,19 +1,17 @@
 use bevy::{
-    camera::Camera2d,
-    ecs::{
-        query::With,
-        system::{Res, Single},
-    },
-    input::{ButtonInput, keyboard::KeyCode},
-    math::Vec2,
-    time::Time,
-    transform::components::Transform,
+    camera::Camera2d, ecs::{
+        query::With, resource::Resource, system::{Res, Single},
+    }, input::{ButtonInput, keyboard::KeyCode}, math::{Vec2, Vec3, Vec3Swizzles}, time::Time, transform::components::Transform,
 };
 
 const CAMERA_SPEED: f32 = 500.0;
 
-pub fn move_camera(
+#[derive(Resource)]
+pub struct CameraTarget(pub Vec2);
+
+pub fn move_camera_to_target(
     mut camera: Single<&mut Transform, With<Camera2d>>,
+    camera_target: Res<CameraTarget>,
     time: Res<Time>,
     kb_input: Res<ButtonInput<KeyCode>>,
 ) {
@@ -38,7 +36,9 @@ pub fn move_camera(
     // Progressively update the player's position over time. Normalize the
     // direction vector to prevent it from exceeding a magnitude of 1 when
     // moving diagonally.
-    let move_delta = direction.normalize_or_zero() * CAMERA_SPEED * time.delta_secs();
+    
+    let move_delta = (camera_target.0 - camera.translation.xy()).normalize_or_zero() * CAMERA_SPEED * time.delta_secs();
+    //    let move_delta = direction.normalize_or_zero() * CAMERA_SPEED * time.delta_secs();
 
     camera.translation += move_delta.extend(0.);
     camera.translation = camera.translation.round();

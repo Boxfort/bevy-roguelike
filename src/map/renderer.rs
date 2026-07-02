@@ -1,22 +1,13 @@
 use std::ops::Div;
 
 use bevy::{
-    asset::{AssetServer, Handle},
-    camera::Camera2d,
-    color::Color,
-    ecs::{
+    asset::{AssetServer, Handle}, camera::Camera2d, color::Color, ecs::{
         component::Component,
         entity::Entity,
         query::With,
         resource::Resource,
         system::{Commands, Query, Res, ResMut, Single},
-    },
-    image::{Image, ImageArrayLayout, ImageLoaderSettings},
-    math::{IVec2, UVec2, Vec3Swizzles},
-    platform::collections::HashMap,
-    sprite_render::{TileData, TilemapChunk, TilemapChunkTileData},
-    transform::components::Transform,
-    utils::default,
+    }, image::{Image, ImageArrayLayout, ImageLoaderSettings}, math::{IVec2, UVec2, Vec2, Vec3Swizzles}, platform::collections::HashMap, sprite_render::{TileData, TilemapChunk, TilemapChunkTileData}, transform::components::Transform, utils::default,
 };
 use chacha20::ChaCha8Rng;
 use rand::RngExt;
@@ -46,8 +37,8 @@ pub enum TileType {
 }
 
 pub const TILE_PIXEL_SIZE: i32 = 8;
-pub const TILE_PIXEL_DISPLAY_SIZE: i32 = 16;
-const CHUNK_SIZE: i32 = 20;
+pub const TILE_PIXEL_DISPLAY_SIZE: i32 = 8;
+pub const CHUNK_SIZE: i32 = 20;
 const MAP_SIZE_X: i32 = 160;
 const MAP_SIZE_Y: i32 = 100;
 
@@ -202,6 +193,8 @@ fn create_tilemap_chunk(
 
     let tileset: Handle<Image> = tilesets.tilemap.clone();
 
+    let offset= Vec2::splat(((CHUNK_SIZE/2)*TILE_PIXEL_DISPLAY_SIZE) as f32);
+
     cmd.spawn((
         TilemapChunk {
             chunk_size,
@@ -212,8 +205,8 @@ fn create_tilemap_chunk(
         TilemapChunkTileData(tile_data),
         ChunkPosition { pos: chunk_pos },
         Transform::from_xyz(
-            (chunk_pos.x * CHUNK_SIZE * TILE_PIXEL_DISPLAY_SIZE) as f32,
-            (chunk_pos.y * CHUNK_SIZE * TILE_PIXEL_DISPLAY_SIZE) as f32,
+            (chunk_pos.x * CHUNK_SIZE * TILE_PIXEL_DISPLAY_SIZE) as f32 + offset.x,
+            (chunk_pos.y * CHUNK_SIZE * TILE_PIXEL_DISPLAY_SIZE) as f32 + offset.y,
             0.0,
         ),
     ));

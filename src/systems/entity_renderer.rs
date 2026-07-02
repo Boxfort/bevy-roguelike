@@ -36,7 +36,7 @@ pub fn spawn_entity_sprites(
                 sprite: TextModeSprite {
                     bg: renderable.bg.clone().into(),
                     fg: renderable.fg.clone().into(),
-                    anchor: Anchor::TOP_LEFT,
+                    anchor: Anchor::BOTTOM_LEFT,
                     image: tileset.clone(),
                     texture_atlas: Some(TextureAtlas {
                         layout: handle.clone(),
