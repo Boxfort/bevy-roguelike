@@ -46,8 +46,8 @@ pub fn spawn_entity_sprites(
                 },
                 transform: Transform {
                     translation: Vec3 {
-                        x: (position.x * TILE_PIXEL_DISPLAY_SIZE) as f32,
-                        y: (position.y * TILE_PIXEL_DISPLAY_SIZE) as f32,
+                        x: (position.0.x * TILE_PIXEL_DISPLAY_SIZE) as f32,
+                        y: (position.0.y * TILE_PIXEL_DISPLAY_SIZE) as f32,
                         z: 1.0,
                     },
                     scale: Vec3 {

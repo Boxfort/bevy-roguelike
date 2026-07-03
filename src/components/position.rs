@@ -1,7 +1,4 @@
-use bevy::ecs::component::Component;
+use bevy::{ecs::component::Component, math::IVec2};
 
 #[derive(Component)]
-pub struct Position {
-    pub x: i32,
-    pub y: i32
-}
+pub struct Position(pub IVec2);

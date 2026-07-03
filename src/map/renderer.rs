@@ -12,7 +12,7 @@ use bevy::{
 use chacha20::ChaCha8Rng;
 use rand::RngExt;
 
-use crate::{SeededRng, Tilesets};
+use crate::{SeededRng, Tilesets, components::position::Position, player::player::Player};
 
 #[derive(Component)]
 pub struct ChunkPosition {
@@ -110,13 +110,11 @@ pub fn load_chunks(
     assets: Res<AssetServer>,
     mut query: Query<(Entity, &TilemapChunkTileData, &ChunkPosition)>,
     tilesets: Res<Tilesets>,
-    camera: Single<&mut Transform, With<Camera2d>>, // camera currently used as a standin for player pos
+    player_pos: Single<&Position, With<Player>>
 ) {
-    let camera_pos: IVec2 = camera.translation.xy().as_ivec2() / TILE_PIXEL_DISPLAY_SIZE;
-
     // Clamped to the bounds of our chunks (TODO: this would need to change)
     // TODO: generate chunks when necessary
-    let chunk_coordinate = camera_pos.div(CHUNK_SIZE).clamp(
+    let chunk_coordinate = (player_pos.0 + IVec2::splat(1)).div(CHUNK_SIZE).clamp(
         IVec2 { x: 0, y: 0 },
         IVec2 {
             x: (MAP_SIZE_X / CHUNK_SIZE) - 1,
@@ -229,7 +227,7 @@ y
 origin (0,0)
 
 */
-pub fn render_map_chunks(
+pub fn set_map_chunk_tiles(
     map_data: Res<MapData>,
     mut query: Query<(&mut TilemapChunkTileData, &ChunkPosition)>,
 ) {
@@ -247,7 +245,7 @@ pub fn render_map_chunks(
 
                     tile_data[idx as usize] = Some(TileData {
                         tileset_index: tileset_idx,
-                        color: Color::linear_rgb(1.0, 1.0, 1.0),
+                        color: Color::linear_rgb(chunk_position.pos.x as f32 * 0.1, chunk_position.pos.y as f32 * 0.1, 1.0),
                         ..default()
                     });
                 }

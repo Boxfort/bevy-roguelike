@@ -73,20 +73,20 @@ pub fn try_move_player(
 ) {
     let chunk_offset = Vec2::splat(((CHUNK_SIZE / 2) * TILE_PIXEL_DISPLAY_SIZE) as f32);
 
-    player.0.x += player.1.direction.x;
-    player.0.y += player.1.direction.y;
+    player.0.0.x += player.1.direction.x;
+    player.0.0.y += player.1.direction.y;
 
     for (chunk_pos, mut transform) in tilemap_chunks.iter_mut() {
-        transform.translation.x = (((chunk_pos.pos.x * CHUNK_SIZE) - player.0.x)
+        transform.translation.x = (((chunk_pos.pos.x * CHUNK_SIZE) - player.0.0.x)
             * TILE_PIXEL_DISPLAY_SIZE) as f32
             + chunk_offset.x;
-        transform.translation.y = (((chunk_pos.pos.y * CHUNK_SIZE) - player.0.y)
+        transform.translation.y = (((chunk_pos.pos.y * CHUNK_SIZE) - player.0.0.y)
             * TILE_PIXEL_DISPLAY_SIZE) as f32
             + chunk_offset.x;
     }
 
     for (_, mut transform, position) in entities_with_sprites.iter_mut() {
-        transform.translation.x = ((position.x - player.0.x) * TILE_PIXEL_DISPLAY_SIZE) as f32;
-        transform.translation.y = ((position.y - player.0.y) * TILE_PIXEL_DISPLAY_SIZE) as f32;
+        transform.translation.x = ((position.0.x - player.0.0.x) * TILE_PIXEL_DISPLAY_SIZE) as f32;
+        transform.translation.y = ((position.0.y - player.0.0.y) * TILE_PIXEL_DISPLAY_SIZE) as f32;
     }
 }
