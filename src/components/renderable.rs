@@ -1,17 +1,17 @@
-use bevy::{color::{Color, LinearRgba, Srgba}, ecs::component::Component};
-
-
-#[derive(Component)]
-pub struct NeedsSprite; 
-
+use bevy::{
+    color::{Color, LinearRgba, Srgba},
+    ecs::component::Component,
+};
 
 #[derive(Component)]
-pub struct Renderable{
+pub struct NeedsSprite;
+
+#[derive(Component)]
+pub struct Renderable {
     pub tilemap_index: i32,
     pub fg: GlyphColor,
-    pub bg: GlyphColor
+    pub bg: GlyphColor,
 }
-
 
 #[derive(Clone)]
 pub enum GlyphColor {

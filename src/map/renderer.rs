@@ -1,13 +1,22 @@
 use std::ops::Div;
 
 use bevy::{
-    asset::{AssetServer, Handle}, camera::Camera2d, color::Color, ecs::{
+    asset::{AssetServer, Handle},
+    camera::Camera2d,
+    color::Color,
+    ecs::{
         component::Component,
         entity::Entity,
         query::With,
         resource::Resource,
         system::{Commands, Query, Res, ResMut, Single},
-    }, image::{Image, ImageArrayLayout, ImageLoaderSettings}, math::{IVec2, UVec2, Vec2, Vec3Swizzles}, platform::collections::HashMap, sprite_render::{TileData, TilemapChunk, TilemapChunkTileData}, transform::components::Transform, utils::default,
+    },
+    image::{Image, ImageArrayLayout, ImageLoaderSettings},
+    math::{IVec2, UVec2, Vec2, Vec3Swizzles},
+    platform::collections::HashMap,
+    sprite_render::{TileData, TilemapChunk, TilemapChunkTileData},
+    transform::components::Transform,
+    utils::default,
 };
 use chacha20::ChaCha8Rng;
 use rand::RngExt;
@@ -110,7 +119,7 @@ pub fn load_chunks(
     assets: Res<AssetServer>,
     mut query: Query<(Entity, &TilemapChunkTileData, &ChunkPosition)>,
     tilesets: Res<Tilesets>,
-    player_pos: Single<&Position, With<Player>>
+    player_pos: Single<&Position, With<Player>>,
 ) {
     // Clamped to the bounds of our chunks (TODO: this would need to change)
     // TODO: generate chunks when necessary
@@ -191,7 +200,7 @@ fn create_tilemap_chunk(
 
     let tileset: Handle<Image> = tilesets.tilemap.clone();
 
-    let offset= Vec2::splat(((CHUNK_SIZE/2)*TILE_PIXEL_DISPLAY_SIZE) as f32);
+    let offset = Vec2::splat(((CHUNK_SIZE / 2) * TILE_PIXEL_DISPLAY_SIZE) as f32);
 
     cmd.spawn((
         TilemapChunk {
@@ -245,7 +254,11 @@ pub fn set_map_chunk_tiles(
 
                     tile_data[idx as usize] = Some(TileData {
                         tileset_index: tileset_idx,
-                        color: Color::linear_rgb(chunk_position.pos.x as f32 * 0.1, chunk_position.pos.y as f32 * 0.1, 1.0),
+                        color: Color::linear_rgb(
+                            chunk_position.pos.x as f32 * 0.1,
+                            chunk_position.pos.y as f32 * 0.1,
+                            1.0,
+                        ),
                         ..default()
                     });
                 }

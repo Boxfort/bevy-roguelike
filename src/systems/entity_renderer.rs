@@ -13,7 +13,12 @@ use bevy::{
 use bevy_text_mode::{TextModeSprite, TextModeSpriteBundle};
 
 use crate::{
-    Tilesets, components::{position::Position, renderable::{NeedsSprite, Renderable}}, map::renderer::{TILE_PIXEL_DISPLAY_SIZE, TILE_PIXEL_SIZE},
+    Tilesets,
+    components::{
+        position::Position,
+        renderable::{NeedsSprite, Renderable},
+    },
+    map::renderer::{TILE_PIXEL_DISPLAY_SIZE, TILE_PIXEL_SIZE},
 };
 
 pub fn spawn_entity_sprites(

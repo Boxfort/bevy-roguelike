@@ -4,7 +4,12 @@ use bevy::{
         entity::Entity,
         query::{Has, With, Without},
         system::{Commands, Query, Res, Single},
-    }, input::{ButtonInput, keyboard::KeyCode}, math::{IVec2, Vec2}, prelude::Deref, sprite_render::TilemapChunkTileData, transform::components::Transform,
+    },
+    input::{ButtonInput, keyboard::KeyCode},
+    math::{IVec2, Vec2},
+    prelude::Deref,
+    sprite_render::TilemapChunkTileData,
+    transform::components::Transform,
 };
 use bevy_text_mode::TextModeSprite;
 
