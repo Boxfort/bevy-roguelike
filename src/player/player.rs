@@ -33,30 +33,30 @@ pub fn player_input(
 ) {
     let mut direction = IVec2::ZERO;
 
-    if kb_input.just_pressed(KeyCode::Numpad7)
-        || kb_input.just_pressed(KeyCode::Numpad8)
-        || kb_input.just_pressed(KeyCode::Numpad9)
+    if kb_input.pressed(KeyCode::Numpad7)
+        || kb_input.pressed(KeyCode::Numpad8)
+        || kb_input.pressed(KeyCode::Numpad9)
     {
         direction.y += 1;
     }
 
-    if kb_input.just_pressed(KeyCode::Numpad1)
-        || kb_input.just_pressed(KeyCode::Numpad2)
-        || kb_input.just_pressed(KeyCode::Numpad3)
+    if kb_input.pressed(KeyCode::Numpad1)
+        || kb_input.pressed(KeyCode::Numpad2)
+        || kb_input.pressed(KeyCode::Numpad3)
     {
         direction.y -= 1;
     }
 
-    if kb_input.just_pressed(KeyCode::Numpad1)
-        || kb_input.just_pressed(KeyCode::Numpad4)
-        || kb_input.just_pressed(KeyCode::Numpad7)
+    if kb_input.pressed(KeyCode::Numpad1)
+        || kb_input.pressed(KeyCode::Numpad4)
+        || kb_input.pressed(KeyCode::Numpad7)
     {
         direction.x -= 1;
     }
 
-    if kb_input.just_pressed(KeyCode::Numpad3)
-        || kb_input.just_pressed(KeyCode::Numpad6)
-        || kb_input.just_pressed(KeyCode::Numpad9)
+    if kb_input.pressed(KeyCode::Numpad3)
+        || kb_input.pressed(KeyCode::Numpad6)
+        || kb_input.pressed(KeyCode::Numpad9)
     {
         direction.x += 1;
     }

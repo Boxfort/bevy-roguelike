@@ -19,9 +19,14 @@ use bevy::{
     utils::default,
 };
 use chacha20::ChaCha8Rng;
-use rand::RngExt;
+use rand::{RngExt, SeedableRng};
 
-use crate::{SeededRng, Tilesets, components::position::Position, player::player::Player};
+use crate::{
+    SeededRng, Tilesets,
+    components::position::Position,
+    map::generator::{GameMap, OvermapChunk, OvermapTileType, generate_overmap_chunk},
+    player::player::Player,
+};
 
 #[derive(Component)]
 pub struct ChunkPosition {
@@ -43,13 +48,14 @@ pub struct ChunkData {
 pub enum TileType {
     Wall,
     Floor,
+    Test
 }
 
 pub const TILE_PIXEL_SIZE: i32 = 8;
 pub const TILE_PIXEL_DISPLAY_SIZE: i32 = 8;
-pub const CHUNK_SIZE: i32 = 20;
-const MAP_SIZE_X: i32 = 160;
-const MAP_SIZE_Y: i32 = 100;
+pub const CHUNK_SIZE: i32 = 128;
+const MAP_SIZE_X: i32 = 512;
+const MAP_SIZE_Y: i32 = 512;
 
 pub fn xy_idx(x: i32, y: i32) -> usize {
     (y as usize * MAP_SIZE_X as usize) + x as usize
@@ -110,7 +116,48 @@ fn dummy_chunk_data(rng: &mut ChaCha8Rng) -> HashMap<IVec2, ChunkData> {
 }
 
 pub fn generate_chunk_data(mut map_data: ResMut<MapData>, mut rng: ResMut<SeededRng>) {
-    map_data.chunk_data = dummy_chunk_data(&mut rng);
+    let mut game_map = GameMap {
+        overmap_chunks: HashMap::new(),
+    };
+    let mut rng = ChaCha8Rng::seed_from_u64(1234);
+    generate_overmap_chunk(&mut game_map, IVec2 { x: 0, y: 0 }, &mut rng);
+
+    let map_to_chunk_data: HashMap<IVec2, ChunkData> = game_map
+        .overmap_chunks
+        .iter()
+        .map(|(_, chunk)| overmap_tiles_to_chunk_data(chunk))
+        .collect();
+
+    //map_data.chunk_data = dummy_chunk_data(&mut rng);
+    map_data.chunk_data = map_to_chunk_data;
+}
+
+fn overmap_tiles_to_chunk_data(overmap_chunk: &OvermapChunk) -> (IVec2, ChunkData) {
+    let tiles: Vec<TileType> = overmap_chunk
+        .overmap_tiles
+        .iter()
+        .map(|tile| match tile {
+            Some(tiletype) => match tiletype {
+                OvermapTileType::Road => TileType::Wall,
+                OvermapTileType::House => TileType::Test,
+            },
+            None => TileType::Floor,
+        })
+        .collect();
+
+    (overmap_chunk.coordinates.0, ChunkData { tiles: tiles })
+}
+fn div_away_from_zero(a: i32, b: i32) -> i32 {
+    let q = a / b;
+    let r = a % b;
+
+    if r == 0 {
+        q
+    } else if a >= 0 {
+        q + 1
+    } else {
+        q - 1
+    }
 }
 
 pub fn load_chunks(
@@ -121,15 +168,7 @@ pub fn load_chunks(
     tilesets: Res<Tilesets>,
     player_pos: Single<&Position, With<Player>>,
 ) {
-    // Clamped to the bounds of our chunks (TODO: this would need to change)
-    // TODO: generate chunks when necessary
-    let chunk_coordinate = (player_pos.0 + IVec2::splat(1)).div(CHUNK_SIZE).clamp(
-        IVec2 { x: 0, y: 0 },
-        IVec2 {
-            x: (MAP_SIZE_X / CHUNK_SIZE) - 1,
-            y: (MAP_SIZE_Y / CHUNK_SIZE) - 1,
-        },
-    );
+    let chunk_coordinate = player_pos.0.div_euclid(IVec2 { x: CHUNK_SIZE, y: CHUNK_SIZE });
 
     let mut chunks_to_load: Vec<IVec2> = get_adjacent_chunk_positions(chunk_coordinate, 1);
 
@@ -157,19 +196,6 @@ pub fn load_chunks(
     }
 
     for chunk_pos in chunks_to_load {
-        if chunk_pos.x >= (MAP_SIZE_X / CHUNK_SIZE) {
-            continue;
-        };
-        if chunk_pos.x < 0 {
-            continue;
-        };
-        if chunk_pos.y >= (MAP_SIZE_Y / CHUNK_SIZE) {
-            continue;
-        };
-        if chunk_pos.y < 0 {
-            continue;
-        };
-
         map_data.loaded_chunks.push(chunk_pos);
         create_tilemap_chunk(&mut cmd, chunk_pos, &assets, &tilesets);
     }
@@ -249,14 +275,15 @@ pub fn set_map_chunk_tiles(
                     let tileset_idx = match (chunk_position.pos, idx, tiles.tiles[idx as usize]) {
                         (IVec2 { x: 0, y: 0 }, 0, _) => 4,
                         (_, _, TileType::Wall) => 1,
-                        (_, _, TileType::Floor) => 0,
+                        (_, _, TileType::Floor) => 44,
+                        (_, _, TileType::Test) => 22,
                     };
 
                     tile_data[idx as usize] = Some(TileData {
                         tileset_index: tileset_idx,
                         color: Color::linear_rgb(
-                            chunk_position.pos.x as f32 * 0.1,
-                            chunk_position.pos.y as f32 * 0.1,
+                            0.2 + (chunk_position.pos.x as f32 * 0.1),
+                            0.2 + (chunk_position.pos.y as f32 * 0.1),
                             1.0,
                         ),
                         ..default()
