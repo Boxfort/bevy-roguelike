@@ -25,6 +25,7 @@ mod components;
 mod map;
 mod player;
 mod systems;
+mod utils;
 
 fn main() {
     let mut app = App::new();

@@ -26,6 +26,7 @@ use crate::{
     components::position::Position,
     map::generator::{GameMap, OvermapChunk, OvermapTileType, generate_overmap_chunk},
     player::player::Player,
+    utils::xy_idx,
 };
 
 #[derive(Component)]
@@ -48,7 +49,7 @@ pub struct ChunkData {
 pub enum TileType {
     Wall,
     Floor,
-    Test
+    Test,
 }
 
 pub const TILE_PIXEL_SIZE: i32 = 8;
@@ -57,29 +58,25 @@ pub const CHUNK_SIZE: i32 = 128;
 const MAP_SIZE_X: i32 = 512;
 const MAP_SIZE_Y: i32 = 512;
 
-pub fn xy_idx(x: i32, y: i32) -> usize {
-    (y as usize * MAP_SIZE_X as usize) + x as usize
-}
-
 fn dummy_chunk_data(rng: &mut ChaCha8Rng) -> HashMap<IVec2, ChunkData> {
     let mut map = vec![TileType::Floor; (MAP_SIZE_X * MAP_SIZE_Y) as usize];
 
     // Make the boundaries walls
     for x in 0..MAP_SIZE_X {
-        map[xy_idx(x, 0)] = TileType::Wall;
-        map[xy_idx(x, MAP_SIZE_Y - 1)] = TileType::Wall;
+        map[xy_idx(x, 0, MAP_SIZE_X as usize)] = TileType::Wall;
+        map[xy_idx(x, MAP_SIZE_Y - 1, MAP_SIZE_X as usize)] = TileType::Wall;
     }
     for y in 0..MAP_SIZE_Y {
-        map[xy_idx(0, y)] = TileType::Wall;
-        map[xy_idx(MAP_SIZE_X - 1, y)] = TileType::Wall;
+        map[xy_idx(0, y, MAP_SIZE_X as usize)] = TileType::Wall;
+        map[xy_idx(MAP_SIZE_X - 1, y, MAP_SIZE_X as usize)] = TileType::Wall;
     }
 
     // Now we'll randomly splat 400 walls. It won't be pretty, but it's a decent illustration.
     for _i in 0..400 {
         let x = rng.random_range(1..(MAP_SIZE_X - 1));
         let y = rng.random_range(1..(MAP_SIZE_Y - 1));
-        let idx = xy_idx(x, y);
-        if idx != xy_idx(40, 25) {
+        let idx = xy_idx(x, y, MAP_SIZE_X as usize);
+        if idx != xy_idx(40, 25, MAP_SIZE_X as usize) {
             map[idx] = TileType::Wall;
         }
     }
@@ -168,7 +165,10 @@ pub fn load_chunks(
     tilesets: Res<Tilesets>,
     player_pos: Single<&Position, With<Player>>,
 ) {
-    let chunk_coordinate = player_pos.0.div_euclid(IVec2 { x: CHUNK_SIZE, y: CHUNK_SIZE });
+    let chunk_coordinate = player_pos.0.div_euclid(IVec2 {
+        x: CHUNK_SIZE,
+        y: CHUNK_SIZE,
+    });
 
     let mut chunks_to_load: Vec<IVec2> = get_adjacent_chunk_positions(chunk_coordinate, 1);
 
@@ -269,28 +269,25 @@ pub fn set_map_chunk_tiles(
     for (mut tile_data, chunk_position) in query.iter_mut() {
         let tiles_in_chunk = map_data.chunk_data.get(&chunk_position.pos);
 
-        match tiles_in_chunk {
-            Some(tiles) => {
-                for idx in 0..(CHUNK_SIZE * CHUNK_SIZE) {
-                    let tileset_idx = match (chunk_position.pos, idx, tiles.tiles[idx as usize]) {
-                        (IVec2 { x: 0, y: 0 }, 0, _) => 4,
-                        (_, _, TileType::Wall) => 1,
-                        (_, _, TileType::Floor) => 44,
-                        (_, _, TileType::Test) => 22,
-                    };
+        if let Some(tiles) = tiles_in_chunk {
+            for idx in 0..(CHUNK_SIZE * CHUNK_SIZE) {
+                let tileset_idx = match (chunk_position.pos, idx, tiles.tiles[idx as usize]) {
+                    (IVec2 { x: 0, y: 0 }, 0, _) => 4,
+                    (_, _, TileType::Wall) => 1,
+                    (_, _, TileType::Floor) => 44,
+                    (_, _, TileType::Test) => 22,
+                };
 
-                    tile_data[idx as usize] = Some(TileData {
-                        tileset_index: tileset_idx,
-                        color: Color::linear_rgb(
-                            0.2 + (chunk_position.pos.x as f32 * 0.1),
-                            0.2 + (chunk_position.pos.y as f32 * 0.1),
-                            1.0,
-                        ),
-                        ..default()
-                    });
-                }
+                tile_data[idx as usize] = Some(TileData {
+                    tileset_index: tileset_idx,
+                    color: Color::linear_rgb(
+                        0.2 + (chunk_position.pos.x as f32 * 0.1),
+                        0.2 + (chunk_position.pos.y as f32 * 0.1),
+                        1.0,
+                    ),
+                    ..default()
+                });
             }
-            None => (),
         }
     }
 }
