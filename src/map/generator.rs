@@ -228,34 +228,30 @@ pub fn generate_overmap_chunk(
                 RoadBuilder::new(
                     current_overmap_chunk_coord,
                     city.position,
+                    current_overmap_chunk_coord,
                     IVec2 { x: 0, y: 1 },
                     0,
-                    0.0,
-                    city.size,
                 ),
                 RoadBuilder::new(
                     current_overmap_chunk_coord,
                     city.position,
+                    current_overmap_chunk_coord,
                     IVec2 { x: 0, y: -1 },
                     0,
-                    0.0,
-                    city.size,
                 ),
                 RoadBuilder::new(
                     current_overmap_chunk_coord,
                     city.position,
+                    current_overmap_chunk_coord,
                     IVec2 { x: 1, y: 0 },
                     0,
-                    0.0,
-                    city.size,
                 ),
                 RoadBuilder::new(
                     current_overmap_chunk_coord,
                     city.position,
+                    current_overmap_chunk_coord,
                     IVec2 { x: -1, y: 0 },
                     0,
-                    0.0,
-                    city.size,
                 ),
             ];
 
@@ -282,9 +278,9 @@ enum RoadBuilderAction {
 
 struct RoadBuilder {
     chunk_cursor: ChunkCursor,
+    origin_chunk: OvermapChunkCoords,
     direction: IVec2,
     generation: i32,
-    stop_probability: i32,
     action_probabilities: Vec<(RoadBuilderAction, i32)>,
     cumulative_action_weights: i32,
     moves_since_split: i32,
@@ -297,33 +293,30 @@ impl RoadBuilder {
     pub fn new(
         chunk_coordinate: OvermapChunkCoords,
         start_position: IVec2,
+        origin_chunk: OvermapChunkCoords,
         direction: IVec2,
         generation: i32,
-        distance_from_center: f32,
-        city_size: i32,
     ) -> RoadBuilder {
-        let t = distance_from_center / city_size as f32;
-        RoadBuilder {
-            chunk_cursor: ChunkCursor {
-                chunk_coord: chunk_coordinate,
-                local_pos: start_position,
-            },
-            direction: direction,
-            generation: generation,
-            stop_probability: (100.0 * t * t) as i32,
-            /*
-            stop_probability: (100.0
-                * ((distance_from_center) / (city_size as f32)))
-                as i32,
-            */
-            action_probabilities: vec![
+        let actions = match generation {
+            0 => vec![(Continue, 8), (SplitTwice, 2), (SplitTwiceAndContinue, 2)],
+            _ => vec![
                 (Continue, 4),
                 (SplitOnce, 1),
                 (SplitOnceAndContinue, 2),
                 (SplitTwice, 1),
                 (SplitTwiceAndContinue, 2),
             ],
-            cumulative_action_weights: 10,
+        };
+        RoadBuilder {
+            chunk_cursor: ChunkCursor {
+                chunk_coord: chunk_coordinate,
+                local_pos: start_position,
+            },
+            origin_chunk: origin_chunk,
+            direction: direction,
+            generation: generation,
+            cumulative_action_weights: actions.iter().map(|x| x.1).sum(),
+            action_probabilities: actions,
             moves_since_split: 0,
         }
     }
@@ -344,6 +337,15 @@ fn run_road_builder_iteration(
             _ => (),
         }
 
+        if (road_builders[i].chunk_cursor.chunk_coord.0 - road_builders[i].origin_chunk.0)
+            .abs()
+            .max_element()
+            > 1
+        {
+            road_builders.remove(i);
+            continue 'outer;
+        }
+
         let current_tile = overmap_chunks
             .get_mut(&road_builders[i].chunk_cursor.chunk_coord)
             .unwrap()
@@ -358,10 +360,6 @@ fn run_road_builder_iteration(
             && let Some(tile) = current_tile
             && tile == Road
         {
-            println!(
-                "KILLED BUILDER DUE TO TOUCHING ROAD, GEN: {}",
-                road_builders[i].generation
-            );
             road_builders.remove(i);
             continue 'outer;
         } else if road_builders[i].generation > 0 {
@@ -375,10 +373,6 @@ fn run_road_builder_iteration(
                     road_builders[i].chunk_cursor.peek_tile(overmap_chunks, dir)
                     && tile_type == Road
                 {
-                    println!(
-                        "KILLED BUILDER DUE TO BEING BESIDE ROAD, GEN: {}",
-                        road_builders[i].generation
-                    );
                     road_builders.remove(i);
                     continue 'outer;
                 }
@@ -393,15 +387,26 @@ fn run_road_builder_iteration(
             Road,
         );
 
-        // Kill builder if required
+        // Kill builder based on distance from city center
         let stop_roll = rng.random_range(0..100);
-        if stop_roll < road_builders[i].stop_probability {
-            println!("KILLED BUILDER DUE TO STOP ROLL");
+
+        let distance_from_center: f32 = ((OVERMAP_CHUNK_SIZE
+            * road_builders[i].chunk_cursor.chunk_coord.0)
+            + road_builders[i].chunk_cursor.local_pos)
+            .manhattan_distance(
+                (OVERMAP_CHUNK_SIZE * city.overmap_chunk_coordinate.0) + city.position,
+            ) as f32;
+
+        let t = distance_from_center / city.size as f32;
+        let stop_probability = (100.0 * t * t * t) as i32; // Quadratic
+
+        if stop_roll < stop_probability {
+            if road_builders[i].generation == 0 {
+                println!("KILLED BUILDER DUE TO STOP ROLL");
+            }
             road_builders.remove(i);
             continue;
         }
-
-        // TODO: DO NOT LET BUILDERS REACH TWO CHUNKS AWAY, THEY CAN REACH INTO THE NEIGHBOURING CHUNK AND NO FURTHER
 
         // calculate action
         if road_builders[i].moves_since_split < RoadBuilder::MOVES_BEFORE_SPLIT {
@@ -410,40 +415,36 @@ fn run_road_builder_iteration(
         } else {
             let action_roll = rng.random_range(0..road_builders[i].cumulative_action_weights);
             let mut cumulative = 0;
-            println!("action roll {}", action_roll);
             for (action, weight) in road_builders[i].action_probabilities.clone() {
                 cumulative += weight;
-                println!("weight {}", weight);
-                println!("cum {}", cumulative);
-                println!("action {:?}", action);
                 if action_roll < cumulative {
-                    println!("SELECTED!");
                     match action {
                         Continue => {
-                            println!("continue");
                             i += 1;
                         }
                         SplitOnce => {
-                            println!("Split one");
                             let dir = rng.random_range(0..=1);
                             spawn_child_road_builder(road_builders, city, dir, i);
+                            if road_builders[i].generation == 0 {
+                                println!("KILLED BUILDER DUE TO SPLIT");
+                            }
                             road_builders.remove(i);
                         }
                         SplitOnceAndContinue => {
-                            println!("Split one and continue");
                             let dir = rng.random_range(0..=1);
                             spawn_child_road_builder(road_builders, city, dir, i);
                             road_builders[i].moves_since_split = 0;
                             i += 1
                         }
                         SplitTwice => {
-                            println!("Split twice");
                             spawn_child_road_builder(road_builders, city, 0, i);
                             spawn_child_road_builder(road_builders, city, 1, i);
+                            if road_builders[i].generation == 0 {
+                                println!("KILLED BUILDER DUE TO SPLIT");
+                            }
                             road_builders.remove(i);
                         }
                         SplitTwiceAndContinue => {
-                            println!("Split twice and continue");
                             spawn_child_road_builder(road_builders, city, 0, i);
                             spawn_child_road_builder(road_builders, city, 1, i);
                             road_builders[i].moves_since_split = 0;
@@ -467,24 +468,25 @@ fn spawn_child_road_builder(
     road_builders.push(RoadBuilder::new(
         road_builder.chunk_cursor.chunk_coord,
         road_builder.chunk_cursor.local_pos,
+        road_builder.origin_chunk,
         road_builder.direction.yx() * if dir > 0 { 1 } else { -1 },
         road_builder.generation + 1,
-        ((OVERMAP_CHUNK_SIZE * road_builder.chunk_cursor.chunk_coord.0)
-            + road_builder.chunk_cursor.local_pos)
-            .manhattan_distance(
-                (OVERMAP_CHUNK_SIZE * city.overmap_chunk_coordinate.0) + city.position,
-            ) as f32,
-        city.size,
     ));
 }
 
-fn connect_cities_with_road(game_map: &mut GameMap, city_a: &City, city_b: &City, rng: &mut ChaCha8Rng) {
-    insert_road_tiles_between_cities(
+fn connect_cities_with_road(
+    game_map: &mut GameMap,
+    city_a: &City,
+    city_b: &City,
+    rng: &mut ChaCha8Rng,
+) {
+    insert_road_tiles_between_cities_baised(
         &mut game_map.overmap_chunks,
         city_a.position,
         city_a.overmap_chunk_coordinate,
         city_b.position,
-        city_b.overmap_chunk_coordinate
+        city_b.overmap_chunk_coordinate,
+        rng,
     );
 
     let [current_chunk, neighbouring_chunk] = game_map
@@ -532,7 +534,7 @@ fn add_cities_to_chunk(overmap_chunk: &mut OvermapChunk, rng: &mut ChaCha8Rng) {
     }
 }
 
-fn insert_road_tiles_between_cities(
+fn insert_road_tiles_between_cities_old(
     overmap_chunks: &mut HashMap<OvermapChunkCoords, OvermapChunk>,
     start_city_pos: IVec2,
     start_city_chunk: OvermapChunkCoords,
@@ -584,5 +586,109 @@ fn insert_road_tiles_between_cities(
 
     let overmap_chunk = overmap_chunks.get_mut(&cursor.chunk_coord).unwrap();
 
+    cursor.set_tile(overmap_chunk, OvermapTileType::House);
+}
+
+fn insert_road_tiles_between_cities(
+    overmap_chunks: &mut HashMap<OvermapChunkCoords, OvermapChunk>,
+    start_city_pos: IVec2,
+    start_city_chunk: OvermapChunkCoords,
+    end_city_pos: IVec2,
+    end_city_chunk: OvermapChunkCoords,
+    rng: &mut ChaCha8Rng,
+) {
+    let mut cursor = ChunkCursor {
+        chunk_coord: start_city_chunk,
+        local_pos: IVec2 {
+            x: start_city_pos.x,
+            y: start_city_pos.y,
+        },
+    };
+
+    let mut distance_between_cities = ((start_city_pos
+        + (start_city_chunk.0 * OVERMAP_CHUNK_SIZE))
+        - (end_city_pos + (end_city_chunk.0 * OVERMAP_CHUNK_SIZE)))
+        .abs();
+
+    let direction_to_chunk = end_city_chunk.0 - start_city_chunk.0;
+    let direction_to_city = end_city_pos - start_city_pos;
+
+    let direction = IVec2 {
+        x: if direction_to_chunk.x != 0 {
+            direction_to_chunk.x.signum()
+        } else {
+            direction_to_city.x.signum()
+        },
+        y: if direction_to_chunk.y != 0 {
+            direction_to_chunk.y.signum()
+        } else {
+            direction_to_city.y.signum()
+        },
+    };
+
+    let overmap_chunk = overmap_chunks.get_mut(&cursor.chunk_coord).unwrap();
+    cursor.set_tile(overmap_chunk, OvermapTileType::House);
+
+    // draw the exit road
+    if distance_between_cities.x > distance_between_cities.y {
+        for _ in 0..distance_between_cities.x.min(32) * direction.x {
+            cursor.step_x(direction.x);
+            let overmap_chunk = overmap_chunks.get_mut(&cursor.chunk_coord).unwrap();
+            cursor.set_tile(overmap_chunk, OvermapTileType::Road);
+        }
+    } else {
+        for _ in 0..distance_between_cities.y.min(32) * direction.y {
+            cursor.step_y(direction.y);
+            let overmap_chunk = overmap_chunks.get_mut(&cursor.chunk_coord).unwrap();
+            cursor.set_tile(overmap_chunk, OvermapTileType::Road);
+        }
+    };
+
+    let mut distance_to_end = ((cursor.local_pos + (cursor.chunk_coord.0 * OVERMAP_CHUNK_SIZE))
+        - (end_city_pos + (end_city_chunk.0 * OVERMAP_CHUNK_SIZE)))
+        .abs();
+
+    // get entrance road start pos
+    if distance_to_end.x > distance_to_end.y {
+        distance_to_end.x -= distance_to_end.x.min(32)
+    } else {
+        distance_to_end.y -= distance_to_end.y.min(32)
+    };
+
+    while distance_to_end.element_sum() > 0 {
+        let roll = rng.random_range(0..distance_to_end.element_sum());
+        if roll < distance_to_end.x {
+            cursor.step_x(direction.x);
+            let overmap_chunk = overmap_chunks.get_mut(&cursor.chunk_coord).unwrap();
+            cursor.set_tile(overmap_chunk, OvermapTileType::Road);
+            distance_to_end.x -= 1;
+        } else {
+            cursor.step_y(direction.y);
+            let overmap_chunk = overmap_chunks.get_mut(&cursor.chunk_coord).unwrap();
+            cursor.set_tile(overmap_chunk, OvermapTileType::Road);
+            distance_to_end.y -= 1;
+        }
+    }
+
+    distance_to_end = ((cursor.local_pos + (cursor.chunk_coord.0 * OVERMAP_CHUNK_SIZE))
+        - (end_city_pos + (end_city_chunk.0 * OVERMAP_CHUNK_SIZE)))
+        .abs();
+
+    while distance_to_end.element_sum() > 0 {
+        let roll = rng.random_range(0..distance_to_end.element_sum());
+        if roll < distance_to_end.x {
+            cursor.step_x(direction.x);
+            let overmap_chunk = overmap_chunks.get_mut(&cursor.chunk_coord).unwrap();
+            cursor.set_tile(overmap_chunk, OvermapTileType::Road);
+            distance_to_end.x -= 1;
+        } else {
+            cursor.step_y(direction.y);
+            let overmap_chunk = overmap_chunks.get_mut(&cursor.chunk_coord).unwrap();
+            cursor.set_tile(overmap_chunk, OvermapTileType::Road);
+            distance_to_end.y -= 1;
+        }
+    }
+
+    let overmap_chunk = overmap_chunks.get_mut(&cursor.chunk_coord).unwrap();
     cursor.set_tile(overmap_chunk, OvermapTileType::House);
 }
