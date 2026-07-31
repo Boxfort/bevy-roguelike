@@ -273,8 +273,8 @@ pub fn set_map_chunk_tiles(
             for idx in 0..(CHUNK_SIZE * CHUNK_SIZE) {
                 let tileset_idx = match (chunk_position.pos, idx, tiles.tiles[idx as usize]) {
                     (IVec2 { x: 0, y: 0 }, 0, _) => 4,
-                    (_, _, TileType::Wall) => 1,
-                    (_, _, TileType::Floor) => 44,
+                    (_, _, TileType::Wall) => 176,
+                    (_, _, TileType::Floor) => 249,
                     (_, _, TileType::Test) => 22,
                 };
 

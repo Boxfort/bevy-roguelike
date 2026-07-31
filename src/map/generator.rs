@@ -188,7 +188,7 @@ pub fn generate_overmap_chunk(
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 enum RoadBuilderAction {
     Continue,
     SplitOnce,
@@ -219,6 +219,7 @@ impl RoadBuilder {
         distance_from_center: f32,
         city_size: i32,
     ) -> RoadBuilder {
+        let t = distance_from_center / city_size as f32;
         RoadBuilder {
             chunk_cursor: ChunkCursor {
                 chunk_coord: chunk_coordinate,
@@ -226,17 +227,20 @@ impl RoadBuilder {
             },
             direction: direction,
             generation: generation,
+            stop_probability: (100.0 * t * t) as i32,
+            /*
             stop_probability: (100.0
-                * (((10.0 * generation as f32) + distance_from_center) / (city_size as f32)))
+                * ((distance_from_center) / (city_size as f32)))
                 as i32,
+            */
             action_probabilities: vec![
-                (Continue, 2),
-                (SplitOnce, 2),
-                (SplitOnceAndContinue, 4),
-                (SplitTwice, 2),
+                (Continue, 4),
+                (SplitOnce, 1),
+                (SplitOnceAndContinue, 2),
+                (SplitTwice, 1),
                 (SplitTwiceAndContinue, 2),
             ],
-            cumulative_action_weights: 12,
+            cumulative_action_weights: 10,
             moves_since_split: 0,
         }
     }
@@ -249,33 +253,46 @@ fn run_road_builder_iteration(
     rng: &mut ChaCha8Rng,
 ) {
     let mut i = 0;
-    while i < road_builders.len() {
+    'outer: while i < road_builders.len() {
         // move
         match road_builders[i].direction {
-            IVec2 { x, y: _ } if x > 0 => road_builders[i].chunk_cursor.step_x(x),
-            IVec2 { x: _, y } if y > 0 => road_builders[i].chunk_cursor.step_y(y),
+            IVec2 { x, y: _ } if x != 0 => road_builders[i].chunk_cursor.step_x(x),
+            IVec2 { x: _, y } if y != 0 => road_builders[i].chunk_cursor.step_y(y),
             _ => (),
         }
+
+        let current_tile = overmap_chunks
+            .get_mut(&road_builders[i].chunk_cursor.chunk_coord)
+            .unwrap()
+            .overmap_tiles[xy_idx(
+            road_builders[i].chunk_cursor.local_pos.x,
+            road_builders[i].chunk_cursor.local_pos.y,
+            OVERMAP_CHUNK_SIZE as usize,
+        )];
+
+        // Kill builder if moved onto another road
+        if road_builders[i].generation > 0
+            && let Some(tile) = current_tile
+            && tile == Road
         {
-            let road_builder = &road_builders[i];
-            let current_tile = overmap_chunks
-                .get_mut(&road_builder.chunk_cursor.chunk_coord)
-                .unwrap()
-                .overmap_tiles[xy_idx(
-                road_builder.chunk_cursor.local_pos.x,
-                road_builder.chunk_cursor.local_pos.y,
-                OVERMAP_CHUNK_SIZE as usize,
-            )];
-
-            // TODO: Check left+right (relative to forward direction) and delete if next to a road.
-
-            // Kill builder if moved onto another road
-            if road_builder.generation > 0
-                && let Some(tile) = current_tile
-                && tile == Road
-            {
-                road_builders.remove(i);
-                continue;
+            println!("KILLED BUILDER DUE TO TOUCHING ROAD, GEN: {}", road_builders[i].generation);
+            road_builders.remove(i);
+            continue 'outer;
+        } else if road_builders[i].generation > 0 {
+            // Kill builder if next to a road
+            let perpendicular_directions = vec![
+                road_builders[i].direction.yx(),
+                road_builders[i].direction.yx() * -1,
+            ];
+            for dir in perpendicular_directions {
+                if let Some(tile_type) =
+                    road_builders[i].chunk_cursor.peek_tile(overmap_chunks, dir)
+                    && tile_type == Road
+                {
+                println!("KILLED BUILDER DUE TO BEING BESIDE ROAD, GEN: {}", road_builders[i].generation);
+                    road_builders.remove(i);
+                    continue 'outer;
+                }
             }
         }
 
@@ -290,37 +307,52 @@ fn run_road_builder_iteration(
         // Kill builder if required
         let stop_roll = rng.random_range(0..100);
         if stop_roll < road_builders[i].stop_probability {
+            println!("KILLED BUILDER DUE TO STOP ROLL");
             road_builders.remove(i);
             continue;
         }
 
         // calculate action
-        if road_builders[i].moves_since_split > RoadBuilder::MOVES_BEFORE_SPLIT {
-            i += 1;
+        if road_builders[i].moves_since_split < RoadBuilder::MOVES_BEFORE_SPLIT {
             road_builders[i].moves_since_split += 1;
+            i += 1;
         } else {
-            let mut action_roll = rng.random_range(0..road_builders[i].cumulative_action_weights);
+            let action_roll = rng.random_range(0..road_builders[i].cumulative_action_weights);
+            let mut cumulative = 0;
+            println!("action roll {}", action_roll);
             for (action, weight) in road_builders[i].action_probabilities.clone() {
-                if action_roll < weight {
+                cumulative += weight;
+                println!("weight {}", weight);
+                println!("cum {}", cumulative);
+                println!("action {:?}", action);
+                if action_roll < cumulative {
+                    println!("SELECTED!");
                     match action {
-                        Continue => i += 1,
+                        Continue => {
+                            println!("continue");
+                            i += 1;
+                        },
                         SplitOnce => {
+                            println!("Split one");
                             let dir = rng.random_range(0..=1);
                             spawn_child_road_builder(road_builders, city, dir, i);
                             road_builders.remove(i);
                         }
                         SplitOnceAndContinue => {
+                            println!("Split one and continue");
                             let dir = rng.random_range(0..=1);
                             spawn_child_road_builder(road_builders, city, dir, i);
                             road_builders[i].moves_since_split = 0;
                             i += 1
                         }
                         SplitTwice => {
+                            println!("Split twice");
                             spawn_child_road_builder(road_builders, city, 0, i);
                             spawn_child_road_builder(road_builders, city, 1, i);
                             road_builders.remove(i);
                         }
                         SplitTwiceAndContinue => {
+                            println!("Split twice and continue");
                             spawn_child_road_builder(road_builders, city, 0, i);
                             spawn_child_road_builder(road_builders, city, 1, i);
                             road_builders[i].moves_since_split = 0;
@@ -329,7 +361,6 @@ fn run_road_builder_iteration(
                     }
                     break;
                 }
-                action_roll -= weight;
             }
         }
     }
@@ -402,7 +433,7 @@ fn add_cities_to_chunk(overmap_chunk: &mut OvermapChunk, rng: &mut ChaCha8Rng) {
             id: CityId(0), // TODO: when/if we decide to add multiple cities then this will need to be set
             position: new_city_position,
             overmap_chunk_coordinate: overmap_chunk.coordinates,
-            size: 64,
+            size: 128,
             connected_to: vec![],
         };
 
@@ -504,11 +535,11 @@ impl ChunkCursor {
 
     fn peek_tile(
         &self,
-        overmap_chunks: &mut HashMap<OvermapChunkCoords, OvermapChunk>,
+        overmap_chunks: &HashMap<OvermapChunkCoords, OvermapChunk>,
         delta: IVec2,
     ) -> Option<OvermapTileType> {
         let chunk_delta = (delta + self.local_pos).div_euclid(IVec2::splat(OVERMAP_CHUNK_SIZE));
-        let new_pos = (delta + self.local_pos) % OVERMAP_CHUNK_SIZE;
+        let new_pos = (delta + self.local_pos).rem_euclid(IVec2::splat(OVERMAP_CHUNK_SIZE));
 
         let chunk_coord = OvermapChunkCoords(&self.chunk_coord.0 + chunk_delta);
         overmap_chunks
