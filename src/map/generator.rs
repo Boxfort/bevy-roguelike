@@ -3,7 +3,7 @@ use bevy::{
     platform::collections::HashMap,
 };
 use chacha20::ChaCha8Rng;
-use rand::RngExt;
+use rand::{Rng, RngExt};
 
 use crate::{
     map::generator::{OvermapTileType::Road, RoadBuilderAction::*},
@@ -61,17 +61,100 @@ pub struct Building {
     position: IVec2,
     bounds: IVec2,
 }
+struct ChunkCursor {
+    chunk_coord: OvermapChunkCoords,
+    local_pos: IVec2,
+}
 
-// NOTES
-// Road placement:
-// Kick off 4 'Builders' from the center of the city
-// each tick they have a chance to: stop and/or split left, right, or both.
-// as they get further away from the center of the city relative to the city size
-//   the chance for the builder to stop increases, and the split chance decreases.
-// Building placement:
-// When placing roads place a marker beside the road to show a potential building location
-// After all roads are placed try expanding each building location
-// If placing a building then remove other markers it crosses
+impl ChunkCursor {
+    fn step_x(&mut self, delta: i32) {
+        self.local_pos.x += delta;
+        if delta > 0 {
+            if self.local_pos.x >= OVERMAP_CHUNK_SIZE {
+                self.local_pos.x = 0;
+                self.chunk_coord.0.x += 1;
+            }
+        } else {
+            if self.local_pos.x < 0 {
+                self.local_pos.x = OVERMAP_CHUNK_SIZE - 1;
+                self.chunk_coord.0.x -= 1;
+            }
+        }
+    }
+
+    fn step_y(&mut self, delta: i32) {
+        self.local_pos.y += delta;
+        if delta > 0 {
+            if self.local_pos.y >= OVERMAP_CHUNK_SIZE {
+                self.local_pos.y = 0;
+                self.chunk_coord.0.y += 1;
+            }
+        } else {
+            if self.local_pos.y < 0 {
+                self.local_pos.y = OVERMAP_CHUNK_SIZE - 1;
+                self.chunk_coord.0.y -= 1;
+            }
+        }
+    }
+
+    fn peek_tile(
+        &self,
+        overmap_chunks: &HashMap<OvermapChunkCoords, OvermapChunk>,
+        delta: IVec2,
+    ) -> Option<OvermapTileType> {
+        let chunk_delta = (delta + self.local_pos).div_euclid(IVec2::splat(OVERMAP_CHUNK_SIZE));
+        let new_pos = (delta + self.local_pos).rem_euclid(IVec2::splat(OVERMAP_CHUNK_SIZE));
+
+        let chunk_coord = OvermapChunkCoords(&self.chunk_coord.0 + chunk_delta);
+        overmap_chunks
+            .get(&chunk_coord)
+            .map(|x| x.overmap_tiles[xy_idx(new_pos.x, new_pos.y, OVERMAP_CHUNK_SIZE as usize)])
+            .flatten()
+    }
+
+    fn set_tile(&self, overmap_chunk: &mut OvermapChunk, tile_type: OvermapTileType) {
+        if overmap_chunk.overmap_tiles[xy_idx(
+            self.local_pos.x,
+            self.local_pos.y,
+            OVERMAP_CHUNK_SIZE as usize,
+        )] != Some(OvermapTileType::House)
+        {
+            overmap_chunk.overmap_tiles[xy_idx(
+                self.local_pos.x,
+                self.local_pos.y,
+                OVERMAP_CHUNK_SIZE as usize,
+            )] = Some(tile_type);
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+struct BuildingCandidates {
+    candidates: HashMap<usize, BuildingCandidate>,
+    occupancy_map: HashMap<(OvermapChunkCoords, IVec2), usize>,
+}
+
+#[derive(Clone, Debug)]
+/// Buildings are always anchored from the bottom left (relative to orientation)
+/// ```
+/// XX  RoX  RR
+/// oX  RXX  Xo
+/// RR       XX
+/// ```
+struct BuildingCandidate {
+    position: IVec2,
+    chunk_coord: OvermapChunkCoords,
+    direction_to_road: IVec2,
+    shape: BuildingShape,
+}
+
+#[derive(Clone, Debug)]
+enum BuildingShape {
+    OneByOne,
+    OneByTwo,
+    TwoByOne,
+    TwoByTwo,
+}
 
 pub fn generate_overmap_chunk(
     game_map: &mut GameMap,
@@ -117,7 +200,7 @@ pub fn generate_overmap_chunk(
                         .connected_to
                         .contains(&(neighbouring_chunk_coordinate, city_b.0.clone()))
                     {
-                        connect_cities_with_road(game_map, city_a.1, city_b.1);
+                        connect_cities_with_road(game_map, city_a.1, city_b.1, rng);
                     }
                 }
             }
@@ -275,7 +358,10 @@ fn run_road_builder_iteration(
             && let Some(tile) = current_tile
             && tile == Road
         {
-            println!("KILLED BUILDER DUE TO TOUCHING ROAD, GEN: {}", road_builders[i].generation);
+            println!(
+                "KILLED BUILDER DUE TO TOUCHING ROAD, GEN: {}",
+                road_builders[i].generation
+            );
             road_builders.remove(i);
             continue 'outer;
         } else if road_builders[i].generation > 0 {
@@ -289,7 +375,10 @@ fn run_road_builder_iteration(
                     road_builders[i].chunk_cursor.peek_tile(overmap_chunks, dir)
                     && tile_type == Road
                 {
-                println!("KILLED BUILDER DUE TO BEING BESIDE ROAD, GEN: {}", road_builders[i].generation);
+                    println!(
+                        "KILLED BUILDER DUE TO BEING BESIDE ROAD, GEN: {}",
+                        road_builders[i].generation
+                    );
                     road_builders.remove(i);
                     continue 'outer;
                 }
@@ -312,6 +401,8 @@ fn run_road_builder_iteration(
             continue;
         }
 
+        // TODO: DO NOT LET BUILDERS REACH TWO CHUNKS AWAY, THEY CAN REACH INTO THE NEIGHBOURING CHUNK AND NO FURTHER
+
         // calculate action
         if road_builders[i].moves_since_split < RoadBuilder::MOVES_BEFORE_SPLIT {
             road_builders[i].moves_since_split += 1;
@@ -331,7 +422,7 @@ fn run_road_builder_iteration(
                         Continue => {
                             println!("continue");
                             i += 1;
-                        },
+                        }
                         SplitOnce => {
                             println!("Split one");
                             let dir = rng.random_range(0..=1);
@@ -387,13 +478,13 @@ fn spawn_child_road_builder(
     ));
 }
 
-fn connect_cities_with_road(game_map: &mut GameMap, city_a: &City, city_b: &City) {
+fn connect_cities_with_road(game_map: &mut GameMap, city_a: &City, city_b: &City, rng: &mut ChaCha8Rng) {
     insert_road_tiles_between_cities(
         &mut game_map.overmap_chunks,
         city_a.position,
         city_a.overmap_chunk_coordinate,
         city_b.position,
-        city_b.overmap_chunk_coordinate,
+        city_b.overmap_chunk_coordinate
     );
 
     let [current_chunk, neighbouring_chunk] = game_map
@@ -460,21 +551,20 @@ fn insert_road_tiles_between_cities(
         - (end_city_pos + (end_city_chunk.0 * OVERMAP_CHUNK_SIZE)))
         .abs();
 
-    let chunk_dir =
-        (end_city_chunk.0 - start_city_chunk.0).clamp(IVec2::splat(-1), IVec2::splat(1));
-    let x_direction = if chunk_dir.x != 0 {
-        chunk_dir.x
-    } else {
-        (end_city_pos.x - start_city_pos.x).clamp(-1, 1)
-    };
-    let y_direction = if chunk_dir.y != 0 {
-        chunk_dir.y
-    } else {
-        (end_city_pos.y - start_city_pos.y).clamp(-1, 1)
-    };
+    let direction_to_chunk = end_city_chunk.0 - start_city_chunk.0;
+    let direction_to_city = end_city_pos - start_city_pos;
+
     let direction = IVec2 {
-        x: x_direction,
-        y: y_direction,
+        x: if direction_to_chunk.x != 0 {
+            direction_to_chunk.x.signum()
+        } else {
+            direction_to_city.x.signum()
+        },
+        y: if direction_to_chunk.y != 0 {
+            direction_to_chunk.y.signum()
+        } else {
+            direction_to_city.y.signum()
+        },
     };
 
     let overmap_chunk = overmap_chunks.get_mut(&cursor.chunk_coord).unwrap();
@@ -495,71 +585,4 @@ fn insert_road_tiles_between_cities(
     let overmap_chunk = overmap_chunks.get_mut(&cursor.chunk_coord).unwrap();
 
     cursor.set_tile(overmap_chunk, OvermapTileType::House);
-}
-
-struct ChunkCursor {
-    chunk_coord: OvermapChunkCoords,
-    local_pos: IVec2,
-}
-
-impl ChunkCursor {
-    fn step_x(&mut self, delta: i32) {
-        self.local_pos.x += delta;
-        if delta > 0 {
-            if self.local_pos.x >= OVERMAP_CHUNK_SIZE {
-                self.local_pos.x = 0;
-                self.chunk_coord.0.x += 1;
-            }
-        } else {
-            if self.local_pos.x < 0 {
-                self.local_pos.x = OVERMAP_CHUNK_SIZE - 1;
-                self.chunk_coord.0.x -= 1;
-            }
-        }
-    }
-
-    fn step_y(&mut self, delta: i32) {
-        self.local_pos.y += delta;
-        if delta > 0 {
-            if self.local_pos.y >= OVERMAP_CHUNK_SIZE {
-                self.local_pos.y = 0;
-                self.chunk_coord.0.y += 1;
-            }
-        } else {
-            if self.local_pos.y < 0 {
-                self.local_pos.y = OVERMAP_CHUNK_SIZE - 1;
-                self.chunk_coord.0.y -= 1;
-            }
-        }
-    }
-
-    fn peek_tile(
-        &self,
-        overmap_chunks: &HashMap<OvermapChunkCoords, OvermapChunk>,
-        delta: IVec2,
-    ) -> Option<OvermapTileType> {
-        let chunk_delta = (delta + self.local_pos).div_euclid(IVec2::splat(OVERMAP_CHUNK_SIZE));
-        let new_pos = (delta + self.local_pos).rem_euclid(IVec2::splat(OVERMAP_CHUNK_SIZE));
-
-        let chunk_coord = OvermapChunkCoords(&self.chunk_coord.0 + chunk_delta);
-        overmap_chunks
-            .get(&chunk_coord)
-            .map(|x| x.overmap_tiles[xy_idx(new_pos.x, new_pos.y, OVERMAP_CHUNK_SIZE as usize)])
-            .flatten()
-    }
-
-    fn set_tile(&self, overmap_chunk: &mut OvermapChunk, tile_type: OvermapTileType) {
-        if overmap_chunk.overmap_tiles[xy_idx(
-            self.local_pos.x,
-            self.local_pos.y,
-            OVERMAP_CHUNK_SIZE as usize,
-        )] != Some(OvermapTileType::House)
-        {
-            overmap_chunk.overmap_tiles[xy_idx(
-                self.local_pos.x,
-                self.local_pos.y,
-                OVERMAP_CHUNK_SIZE as usize,
-            )] = Some(tile_type);
-        }
-    }
 }

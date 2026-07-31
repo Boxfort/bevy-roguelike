@@ -281,8 +281,8 @@ pub fn set_map_chunk_tiles(
                 tile_data[idx as usize] = Some(TileData {
                     tileset_index: tileset_idx,
                     color: Color::linear_rgb(
-                        0.2 + (chunk_position.pos.x as f32 * 0.1),
-                        0.2 + (chunk_position.pos.y as f32 * 0.1),
+                        (chunk_position.pos.x as f32 * 0.1).abs(),
+                         (chunk_position.pos.y as f32 * 0.1).abs(),
                         1.0,
                     ),
                     ..default()
