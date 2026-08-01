@@ -3,6 +3,7 @@ use std::hash::Hash;
 use bevy::{
     math::{IVec2, Vec2Swizzles},
     platform::collections::HashMap,
+    ui::debug::print_ui_layout_tree,
 };
 use chacha20::ChaCha8Rng;
 use rand::RngExt;
@@ -94,7 +95,7 @@ struct BuildingCandidate {
     shape: BuildingShape,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 enum BuildingShape {
     OneByOne,
     OneByTwo,
@@ -209,7 +210,6 @@ fn connect_cities(game_map: &mut GameMap, current_overmap_coordinate: IVec2, rng
                         .connected_to
                         .contains(&(neighbouring_chunk_coordinate, city_b.0.clone()))
                     {
-                        println!("Connecting");
                         connect_cities_with_road(game_map, city_a.1, city_b.1, rng);
                     }
                 }
@@ -282,13 +282,60 @@ fn generate_cities(
             }
 
             // Expand the building candidates
-            expand_building_candidates(&mut building_candidates, &mut game_map.overmap_chunks)
+            expand_building_candidates(&mut building_candidates, &mut game_map.overmap_chunks);
 
-            /* // DEBUG
-            for (key, _) in &building_candidates.occupancy_map {
-               game_map.overmap_chunks.get_mut(&key.0).unwrap().overmap_tiles[xy_idx(key.1.x, key.1.y, OVERMAP_CHUNK_SIZE as usize)] = Some(OvermapTileType::House);
+            let mut candidate_keys: Vec<_> =
+                building_candidates.candidates.keys().copied().collect();
+
+            // DEBUG
+            while let Some(candidate_id) = candidate_keys.pop() {
+                if building_candidates.candidates.get(&candidate_id).is_none() {
+                    continue;
+                }
+
+                // If we decide to place the building
+                if building_candidates.candidates[&candidate_id].shape == BuildingShape::TwoByTwo {
+                    let dir_away_from_road =
+                        building_candidates.candidates[&candidate_id].direction_to_road * -1;
+                    let dir_adjacent_to_road = building_candidates.candidates[&candidate_id]
+                        .direction_to_road
+                        .yx();
+                    let deltas = [
+                        IVec2::ZERO,
+                        dir_away_from_road,
+                        dir_adjacent_to_road,
+                        dir_away_from_road + dir_adjacent_to_road,
+                    ];
+
+                    let chunk_cursor = ChunkCursor {
+                        chunk_coord: building_candidates.candidates[&candidate_id].chunk_coord,
+                        local_pos: building_candidates.candidates[&candidate_id].position,
+                    };
+
+                    for delta in deltas {
+                        let (chunk, pos) = chunk_cursor.get_position_delta(delta);
+
+                        let ids_at_position =
+                            building_candidates.occupancy_map[&(chunk, pos)].clone();
+
+                        for id in ids_at_position {
+                            building_candidates.candidates.remove(&id);
+                        }
+
+                        // Remove all entries in occupancy map
+                        building_candidates.occupancy_map.remove(&(chunk, pos));
+
+                        println!("Placing candidate {} at {:?}", candidate_id, &(chunk, pos));
+
+                        game_map
+                            .overmap_chunks
+                            .get_mut(&chunk)
+                            .unwrap()
+                            .overmap_tiles[xy_idx(pos.x, pos.y, OVERMAP_CHUNK_SIZE as usize)] =
+                            Some(OvermapTileType::House);
+                    }
+                }
             }
-            */
         }
     }
 }
@@ -314,7 +361,7 @@ fn expand_building_candidates(
         // Test positions
         let a_delta = dir_away_from_road;
         let b_delta = dir_adjacent_to_road;
-        let c_delta = dir_away_from_road + dir_away_from_road;
+        let c_delta = dir_away_from_road + dir_adjacent_to_road;
 
         let a_is_free = chunk_cursor
             .peek_tile(overmap_chunks, a_delta)
@@ -338,11 +385,23 @@ fn expand_building_candidates(
                     shape: TwoByTwo,
                 };
 
+                new_occupancies
+                    .entry((candidate.chunk_coord, candidate.position))
+                    .or_default()
+                    .push(new_candidate.id);
+                new_occupancies
+                    .entry(chunk_cursor.get_position_delta(a_delta))
+                    .or_default()
+                    .push(new_candidate.id);
+                new_occupancies
+                    .entry(chunk_cursor.get_position_delta(b_delta))
+                    .or_default()
+                    .push(new_candidate.id);
+                new_occupancies
+                    .entry(chunk_cursor.get_position_delta(c_delta))
+                    .or_default()
+                    .push(new_candidate.id);
                 new_candidates.insert(new_candidate.id, new_candidate);
-                new_occupancies.entry((candidate.chunk_coord, candidate.position)).or_default().push(candidate.id);
-                new_occupancies.entry(chunk_cursor.get_position_delta(a_delta)).or_default().push(candidate.id);
-                new_occupancies.entry(chunk_cursor.get_position_delta(b_delta)).or_default().push(candidate.id);
-                new_occupancies.entry(chunk_cursor.get_position_delta(c_delta)).or_default().push(candidate.id);
             }
             // RoA
             // Rxx
@@ -355,9 +414,15 @@ fn expand_building_candidates(
                     shape: OneByTwo,
                 };
 
+                new_occupancies
+                    .entry((candidate.chunk_coord, candidate.position))
+                    .or_default()
+                    .push(new_candidate.id);
+                new_occupancies
+                    .entry(chunk_cursor.get_position_delta(a_delta))
+                    .or_default()
+                    .push(new_candidate.id);
                 new_candidates.insert(new_candidate.id, new_candidate);
-                new_occupancies.entry((candidate.chunk_coord, candidate.position)).or_default().push(candidate.id);
-                new_occupancies.entry(chunk_cursor.get_position_delta(a_delta)).or_default().push(candidate.id);
             }
             // Rox
             // RBx
@@ -370,9 +435,15 @@ fn expand_building_candidates(
                     shape: TwoByOne,
                 };
 
+                new_occupancies
+                    .entry((candidate.chunk_coord, candidate.position))
+                    .or_default()
+                    .push(new_candidate.id);
+                new_occupancies
+                    .entry(chunk_cursor.get_position_delta(b_delta))
+                    .or_default()
+                    .push(new_candidate.id);
                 new_candidates.insert(new_candidate.id, new_candidate);
-                new_occupancies.entry((candidate.chunk_coord, candidate.position)).or_default().push(candidate.id);
-                new_occupancies.entry(chunk_cursor.get_position_delta(b_delta)).or_default().push(candidate.id);
             }
             // Other shapes not valid
             _ => (),
@@ -474,7 +545,7 @@ fn run_road_builder_iteration(
                 .or_insert(vec![]);
 
             if building_candidate_ids.is_empty() {
-                let candidate_id = building_candidates.candidates.values().len();
+                let candidate_id = building_candidates.candidates.keys().len();
                 let building_candidate = BuildingCandidate {
                     id: candidate_id,
                     position: pos,

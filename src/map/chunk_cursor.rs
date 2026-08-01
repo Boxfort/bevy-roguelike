@@ -1,6 +1,11 @@
 use bevy::{math::IVec2, platform::collections::HashMap};
 
-use crate::{map::overmap_generator::{OVERMAP_CHUNK_SIZE, OvermapChunk, OvermapChunkCoords, OvermapTileType}, utils::xy_idx};
+use crate::{
+    map::overmap_generator::{
+        OVERMAP_CHUNK_SIZE, OvermapChunk, OvermapChunkCoords, OvermapTileType,
+    },
+    utils::xy_idx,
+};
 
 #[derive(Debug)]
 pub struct ChunkCursor {
@@ -53,19 +58,26 @@ impl ChunkCursor {
         delta: IVec2,
     ) -> Option<OvermapTileType> {
         let (chunk_coord, new_pos) = self.get_position_delta(delta);
-        overmap_chunks
-            .get(&chunk_coord)
-            .and_then(|x| x.overmap_tiles[xy_idx(new_pos.x, new_pos.y, OVERMAP_CHUNK_SIZE as usize)])
+        overmap_chunks.get(&chunk_coord).and_then(|x| {
+            x.overmap_tiles[xy_idx(new_pos.x, new_pos.y, OVERMAP_CHUNK_SIZE as usize)]
+        })
     }
 
-    pub fn set_tile(&self, overmap_chunks: &mut HashMap<OvermapChunkCoords, OvermapChunk>, tile_type: OvermapTileType) {
+    pub fn set_tile(
+        &self,
+        overmap_chunks: &mut HashMap<OvermapChunkCoords, OvermapChunk>,
+        tile_type: OvermapTileType,
+    ) {
         if overmap_chunks[&self.chunk_coord].overmap_tiles[xy_idx(
             self.local_pos.x,
             self.local_pos.y,
             OVERMAP_CHUNK_SIZE as usize,
         )] != Some(OvermapTileType::House)
         {
-            overmap_chunks.get_mut(&self.chunk_coord).unwrap().overmap_tiles[xy_idx(
+            overmap_chunks
+                .get_mut(&self.chunk_coord)
+                .unwrap()
+                .overmap_tiles[xy_idx(
                 self.local_pos.x,
                 self.local_pos.y,
                 OVERMAP_CHUNK_SIZE as usize,

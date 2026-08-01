@@ -282,7 +282,7 @@ pub fn set_map_chunk_tiles(
                     tileset_index: tileset_idx,
                     color: Color::linear_rgb(
                         (chunk_position.pos.x as f32 * 0.1).abs(),
-                         (chunk_position.pos.y as f32 * 0.1).abs(),
+                        (chunk_position.pos.y as f32 * 0.1).abs(),
                         1.0,
                     ),
                     ..default()
