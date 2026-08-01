@@ -24,7 +24,7 @@ use rand::{RngExt, SeedableRng};
 use crate::{
     SeededRng, Tilesets,
     components::position::Position,
-    map::generator::{GameMap, OvermapChunk, OvermapTileType, generate_overmap_chunk},
+    map::overmap_generator::{GameMap, OvermapChunk, OvermapTileType, generate_overmap_chunk},
     player::player::Player,
     utils::xy_idx,
 };
