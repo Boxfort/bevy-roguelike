@@ -2,7 +2,7 @@ use bevy::{math::IVec2, platform::collections::HashMap};
 
 use crate::{
     map::overmap_generator::{
-        OVERMAP_CHUNK_SIZE, OvermapChunk, OvermapChunkCoords, OvermapTileType,
+        OVERMAP_CHUNK_SIZE, OvermapChunk, OvermapChunkCoords, OvermapTile, OvermapTileType,
     },
     utils::xy_idx,
 };
@@ -56,23 +56,22 @@ impl ChunkCursor {
         &self,
         overmap_chunks: &HashMap<OvermapChunkCoords, OvermapChunk>,
         delta: IVec2,
-    ) -> Option<OvermapTileType> {
+    ) -> Option<OvermapTile> {
         let (chunk_coord, new_pos) = self.get_position_delta(delta);
         overmap_chunks.get(&chunk_coord).and_then(|x| {
-            x.overmap_tiles[xy_idx(new_pos.x, new_pos.y, OVERMAP_CHUNK_SIZE as usize)]
+            x.overmap_tiles[xy_idx(new_pos.x, new_pos.y, OVERMAP_CHUNK_SIZE as usize)].clone()
         })
     }
 
     pub fn set_tile(
         &self,
         overmap_chunks: &mut HashMap<OvermapChunkCoords, OvermapChunk>,
-        tile_type: OvermapTileType,
+        new_tile: OvermapTile,
     ) {
-        if overmap_chunks[&self.chunk_coord].overmap_tiles[xy_idx(
-            self.local_pos.x,
-            self.local_pos.y,
-            OVERMAP_CHUNK_SIZE as usize,
-        )] != Some(OvermapTileType::House)
+        if self
+            .peek_tile(overmap_chunks, IVec2::ZERO)
+            .map(|t| t.tile_type)
+            != Some(OvermapTileType::House)
         {
             overmap_chunks
                 .get_mut(&self.chunk_coord)
@@ -81,7 +80,7 @@ impl ChunkCursor {
                 self.local_pos.x,
                 self.local_pos.y,
                 OVERMAP_CHUNK_SIZE as usize,
-            )] = Some(tile_type);
+            )] = Some(new_tile);
         }
     }
 }

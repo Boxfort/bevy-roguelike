@@ -49,7 +49,7 @@ pub struct ChunkData {
 pub enum TileType {
     Wall,
     Floor,
-    Test,
+    Test(i32),
 }
 
 pub const TILE_PIXEL_SIZE: i32 = 8;
@@ -133,10 +133,10 @@ fn overmap_tiles_to_chunk_data(overmap_chunk: &OvermapChunk) -> (IVec2, ChunkDat
     let tiles: Vec<TileType> = overmap_chunk
         .overmap_tiles
         .iter()
-        .map(|tile| match tile {
-            Some(tiletype) => match tiletype {
-                OvermapTileType::Road => TileType::Wall,
-                OvermapTileType::House => TileType::Test,
+        .map(|maybe_tile| match maybe_tile {
+            Some(tile) => match (tile.tile_type, tile.glyph) {
+                (OvermapTileType::Road, _) => TileType::Wall,
+                (OvermapTileType::House, glyph) => TileType::Test(glyph),
             },
             None => TileType::Floor,
         })
@@ -275,7 +275,7 @@ pub fn set_map_chunk_tiles(
                     (IVec2 { x: 0, y: 0 }, 0, _) => 4,
                     (_, _, TileType::Wall) => 176,
                     (_, _, TileType::Floor) => 249,
-                    (_, _, TileType::Test) => 22,
+                    (_, _, TileType::Test(glyph)) => glyph as u16,
                 };
 
                 tile_data[idx as usize] = Some(TileData {

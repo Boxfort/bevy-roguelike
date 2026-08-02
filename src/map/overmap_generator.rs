@@ -12,7 +12,7 @@ use crate::{
     map::{
         chunk_cursor::{self, ChunkCursor},
         overmap_generator::{
-            BuildingShape::{OneByTwo, TwoByOne, TwoByTwo},
+            BuildingShape::{OneByOne, OneByTwo, ThreeByThree, TwoByOne, TwoByTwo},
             OvermapTileType::Road,
             RoadBuilderAction::*,
         },
@@ -37,16 +37,17 @@ pub enum OvermapTileType {
     House,
 }
 
+#[derive(Debug, Clone)]
 pub struct OvermapTile {
-    tile_type: OvermapTileType,
-    glyph: i32
+    pub tile_type: OvermapTileType,
+    pub glyph: i32,
 }
 
 #[derive(Debug)]
 pub struct OvermapChunk {
     pub coordinates: OvermapChunkCoords,
     pub cities: HashMap<CityId, City>,
-    pub overmap_tiles: Vec<Option<OvermapTileType>>,
+    pub overmap_tiles: Vec<Option<OvermapTile>>,
     pub generation_complete: bool,
 }
 
@@ -86,15 +87,6 @@ struct BuildingCandidates {
     occupancy_map: HashMap<(OvermapChunkCoords, IVec2), Vec<usize>>,
 }
 
-impl BuildingCandidates {
-    pub fn get_next_id(&mut self) -> usize {
-        let new_id: usize = self.id_counter;
-        self.id_counter += 1;
-
-        new_id
-    }
-}
-
 #[derive(Clone, Debug)]
 /// Buildings are always anchored from the bottom left (relative to orientation)
 /// ```
@@ -116,15 +108,17 @@ enum BuildingShape {
     OneByTwo,
     TwoByOne,
     TwoByTwo,
+    ThreeByThree,
 }
 
 impl BuildingShape {
     pub fn placement_chance(&self) -> i32 {
         match self {
             BuildingShape::OneByOne => 8,
-            OneByTwo => 1,
-            TwoByOne => 2,
-            TwoByTwo => 4,
+            OneByTwo => 2,
+            TwoByOne => 4,
+            TwoByTwo => 5,
+            ThreeByThree => 0,
         }
     }
 
@@ -138,6 +132,19 @@ impl BuildingShape {
             Self::TwoByOne => vec![IVec2::ZERO, adjacent],
             Self::TwoByTwo => {
                 vec![IVec2::ZERO, away, adjacent, away + adjacent]
+            }
+            Self::ThreeByThree => {
+                vec![
+                    IVec2::ZERO,
+                    away,
+                    away + away,
+                    adjacent,
+                    adjacent + adjacent,
+                    away + adjacent,
+                    away + adjacent + adjacent,
+                    away + away + adjacent,
+                    away + away + adjacent + adjacent,
+                ]
             }
         }
     }
@@ -344,6 +351,8 @@ fn draw_houses(
             continue;
         }
 
+        // FIXME: theres a bug where 1x1 houses are overwriting 2x2. Probably not exactly this setup but the occupancy map not being cleared properly etc
+
         // If we decide to place the building
         if rng.random_range(0..10)
             < building_candidates.candidates[&candidate_id]
@@ -355,6 +364,14 @@ fn draw_houses(
                 local_pos: building_candidates.candidates[&candidate_id].position,
             };
 
+            let glyph = if building_candidates.candidates[&candidate_id].shape == TwoByTwo {
+                9
+            } else if building_candidates.candidates[&candidate_id].shape == OneByOne {
+                2
+            } else {
+                40
+            };
+
             // For all the squares in the buildings footprint
             for delta in building_candidates.candidates[&candidate_id]
                 .shape
@@ -362,44 +379,21 @@ fn draw_houses(
             {
                 let (chunk, pos) = chunk_cursor.get_position_delta(delta);
 
-                // Remove ALL candididates in the occupancy map
+                // Remove ALL candididates which intersect
                 let ids_at_position = building_candidates.occupancy_map[&(chunk, pos)].clone();
                 for id in ids_at_position {
-                    // Get candidate
-                    // Remove id from all occupancy squares it intersects
-                    let maybe_candidate = building_candidates.candidates.remove(&id);
-
-                        /*
-                    if let Some(candidate_to_remove) = maybe_candidate {
-                        //println!("REMOVED CANDIDATE {:?}", candidate_to_remove.id);
-                        let chunk_cursor = ChunkCursor {
-                            chunk_coord: candidate_to_remove.chunk_coord,
-                            local_pos: candidate_to_remove.position,
-                        };
-
-                        for delta in candidate_to_remove
-                            .shape
-                            .footprint(candidate_to_remove.direction_to_road)
-                        {
-                            let (chunk, pos) = chunk_cursor.get_position_delta(delta);
-                            building_candidates
-                                .occupancy_map
-                                .get_mut(&(chunk, pos))
-                                .map(|o| o.retain(|x| *x != candidate_to_remove.id));
-                        }
-                    }
-                        */
+                    building_candidates.candidates.remove(&id);
                 }
-
-                // Remove all entries in occupancy map
-                //building_candidates.occupancy_map.remove(&(chunk, pos));
 
                 game_map
                     .overmap_chunks
                     .get_mut(&chunk)
                     .unwrap()
                     .overmap_tiles[xy_idx(pos.x, pos.y, OVERMAP_CHUNK_SIZE as usize)] =
-                    Some(OvermapTileType::House);
+                    Some(OvermapTile {
+                        tile_type: OvermapTileType::House,
+                        glyph,
+                    });
             }
         }
     }
@@ -430,13 +424,19 @@ fn expand_building_candidates(
         let c_delta = dir_away_from_road + dir_adjacent_to_road;
         let a_is_free = chunk_cursor
             .peek_tile(overmap_chunks, a_delta)
-            .is_none_or(|x| x != OvermapTileType::Road || x != OvermapTileType::House);
+            .is_none_or(|x| {
+                x.tile_type != OvermapTileType::Road && x.tile_type != OvermapTileType::House
+            });
         let b_is_free = chunk_cursor
             .peek_tile(overmap_chunks, b_delta)
-            .is_none_or(|x| x != OvermapTileType::Road || x != OvermapTileType::House);
+            .is_none_or(|x| {
+                x.tile_type != OvermapTileType::Road && x.tile_type != OvermapTileType::House
+            });
         let c_is_free = chunk_cursor
             .peek_tile(overmap_chunks, c_delta)
-            .is_none_or(|x| x != OvermapTileType::Road || x != OvermapTileType::House);
+            .is_none_or(|x| {
+                x.tile_type != OvermapTileType::Road && x.tile_type != OvermapTileType::House
+            });
 
         let shape = match (a_is_free, b_is_free, c_is_free) {
             // RoA
@@ -475,7 +475,10 @@ fn expand_building_candidates(
 
     building_candidates.id_counter = curr_candidate_id;
     building_candidates.candidates.extend(new_candidates);
-    building_candidates.occupancy_map.extend(new_occupancies);
+
+    for (key, mut values) in new_occupancies {
+        building_candidates.occupancy_map.entry(key).or_default().append(&mut values);
+    }
 }
 
 fn run_road_builder_iteration(
@@ -503,7 +506,7 @@ fn run_road_builder_iteration(
             continue 'outer;
         }
 
-        let current_tile = overmap_chunks
+        let current_tile = &overmap_chunks
             .get_mut(&road_builders[i].chunk_cursor.chunk_coord)
             .unwrap()
             .overmap_tiles[xy_idx(
@@ -515,16 +518,15 @@ fn run_road_builder_iteration(
         // Kill builder if moved onto another road
         if road_builders[i].generation > 0 {
             if let Some(tile) = current_tile
-                && tile == Road
+                && tile.tile_type == Road
             {
                 road_builders.remove(i);
                 continue 'outer;
             } else {
                 // Kill builder if next to a road
                 for dir in road_builders[i].get_perpendicular_directions() {
-                    if let Some(tile_type) =
-                        road_builders[i].chunk_cursor.peek_tile(overmap_chunks, dir)
-                        && tile_type == Road
+                    if let Some(tile) = road_builders[i].chunk_cursor.peek_tile(overmap_chunks, dir)
+                        && tile.tile_type == Road
                     {
                         road_builders.remove(i);
                         continue 'outer;
@@ -534,7 +536,13 @@ fn run_road_builder_iteration(
         }
 
         // Set road tile
-        road_builders[i].chunk_cursor.set_tile(overmap_chunks, Road);
+        road_builders[i].chunk_cursor.set_tile(
+            overmap_chunks,
+            OvermapTile {
+                tile_type: OvermapTileType::Road,
+                glyph: 0,
+            },
+        );
 
         // Remove any building candidates where we just placed a road.
         let maybe_building_ids = building_candidates.occupancy_map.get_mut(&(
@@ -557,7 +565,7 @@ fn run_road_builder_iteration(
         for dir in road_builders[i].get_perpendicular_directions() {
             // Don't consider spots already occupied by another tile
             if let Some(tile) = road_builders[i].chunk_cursor.peek_tile(overmap_chunks, dir)
-                && [OvermapTileType::Road, OvermapTileType::House].contains(&tile)
+                && [OvermapTileType::Road, OvermapTileType::House].contains(&tile.tile_type)
             {
                 continue;
             }
@@ -579,7 +587,7 @@ fn run_road_builder_iteration(
                     direction_to_road: dir * -1,
                     shape: BuildingShape::OneByOne,
                 };
-                building_candidate_ids.push(building_candidate.id);
+                building_candidate_ids.push(next_candidate_id);
                 building_candidates
                     .candidates
                     .insert(building_candidate.id, building_candidate);
@@ -759,18 +767,36 @@ fn insert_road_tiles_between_cities(
         },
     };
 
-    cursor.set_tile(overmap_chunks, OvermapTileType::House);
+    cursor.set_tile(
+        overmap_chunks,
+        OvermapTile {
+            tile_type: OvermapTileType::House,
+            glyph: 1,
+        },
+    );
 
     // draw the exit road
     if distance_between_cities.x > distance_between_cities.y {
         for _ in 0..distance_between_cities.x.min(city_a.size / 2) * direction.x {
             cursor.step_x(direction.x);
-            cursor.set_tile(overmap_chunks, OvermapTileType::Road);
+            cursor.set_tile(
+                overmap_chunks,
+                OvermapTile {
+                    tile_type: OvermapTileType::Road,
+                    glyph: 0,
+                },
+            );
         }
     } else {
         for _ in 0..distance_between_cities.y.min(city_a.size / 2) * direction.y {
             cursor.step_y(direction.y);
-            cursor.set_tile(overmap_chunks, OvermapTileType::Road);
+            cursor.set_tile(
+                overmap_chunks,
+                OvermapTile {
+                    tile_type: OvermapTileType::Road,
+                    glyph: 0,
+                },
+            );
         }
     };
 
@@ -789,11 +815,23 @@ fn insert_road_tiles_between_cities(
         let roll = rng.random_range(0..distance_to_end.element_sum());
         if roll < distance_to_end.x {
             cursor.step_x(direction.x);
-            cursor.set_tile(overmap_chunks, OvermapTileType::Road);
+            cursor.set_tile(
+                overmap_chunks,
+                OvermapTile {
+                    tile_type: OvermapTileType::Road,
+                    glyph: 0,
+                },
+            );
             distance_to_end.x -= 1;
         } else {
             cursor.step_y(direction.y);
-            cursor.set_tile(overmap_chunks, OvermapTileType::Road);
+            cursor.set_tile(
+                overmap_chunks,
+                OvermapTile {
+                    tile_type: OvermapTileType::Road,
+                    glyph: 0,
+                },
+            );
             distance_to_end.y -= 1;
         }
     }
@@ -806,14 +844,32 @@ fn insert_road_tiles_between_cities(
         let roll = rng.random_range(0..distance_to_end.element_sum());
         if roll < distance_to_end.x {
             cursor.step_x(direction.x);
-            cursor.set_tile(overmap_chunks, OvermapTileType::Road);
+            cursor.set_tile(
+                overmap_chunks,
+                OvermapTile {
+                    tile_type: OvermapTileType::Road,
+                    glyph: 0,
+                },
+            );
             distance_to_end.x -= 1;
         } else {
             cursor.step_y(direction.y);
-            cursor.set_tile(overmap_chunks, OvermapTileType::Road);
+            cursor.set_tile(
+                overmap_chunks,
+                OvermapTile {
+                    tile_type: OvermapTileType::Road,
+                    glyph: 0,
+                },
+            );
             distance_to_end.y -= 1;
         }
     }
 
-    cursor.set_tile(overmap_chunks, OvermapTileType::House);
+    cursor.set_tile(
+        overmap_chunks,
+        OvermapTile {
+            tile_type: OvermapTileType::House,
+            glyph: 1,
+        },
+    );
 }
