@@ -76,8 +76,18 @@ pub struct Building {
 
 #[derive(Clone, Debug)]
 struct BuildingCandidates {
+    id_counter: usize,
     candidates: HashMap<usize, BuildingCandidate>,
     occupancy_map: HashMap<(OvermapChunkCoords, IVec2), Vec<usize>>,
+}
+
+impl BuildingCandidates {
+    pub fn get_next_id(&mut self) -> usize {
+        let new_id: usize = self.id_counter;
+        self.id_counter += 1;
+
+        new_id
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -235,6 +245,7 @@ fn generate_cities(
             .collect();
 
         let mut building_candidates = BuildingCandidates {
+            id_counter: 0,
             candidates: HashMap::new(),
             occupancy_map: HashMap::new(),
         };
@@ -287,54 +298,84 @@ fn generate_cities(
             let mut candidate_keys: Vec<_> =
                 building_candidates.candidates.keys().copied().collect();
 
+
             // DEBUG
-            while let Some(candidate_id) = candidate_keys.pop() {
-                if building_candidates.candidates.get(&candidate_id).is_none() {
-                    continue;
-                }
+            debug_draw_2by2_houses(game_map, &mut building_candidates, candidate_keys);
+        }
+    }
+}
 
-                // If we decide to place the building
-                if building_candidates.candidates[&candidate_id].shape == BuildingShape::TwoByTwo {
-                    let dir_away_from_road =
-                        building_candidates.candidates[&candidate_id].direction_to_road * -1;
-                    let dir_adjacent_to_road = building_candidates.candidates[&candidate_id]
-                        .direction_to_road
-                        .yx();
-                    let deltas = [
-                        IVec2::ZERO,
-                        dir_away_from_road,
-                        dir_adjacent_to_road,
-                        dir_away_from_road + dir_adjacent_to_road,
-                    ];
+fn debug_draw_2by2_houses(
+    game_map: &mut GameMap,
+    building_candidates: &mut BuildingCandidates,
+    mut candidate_keys: Vec<usize>,
+) {
+    while let Some(candidate_id) = candidate_keys.pop() {
+        if building_candidates.candidates.get(&candidate_id).is_none() {
+            continue;
+        }
 
-                    let chunk_cursor = ChunkCursor {
-                        chunk_coord: building_candidates.candidates[&candidate_id].chunk_coord,
-                        local_pos: building_candidates.candidates[&candidate_id].position,
-                    };
+        // If we decide to place the building
+        if building_candidates.candidates[&candidate_id].shape == BuildingShape::TwoByTwo {
+            let dir_away_from_road =
+                building_candidates.candidates[&candidate_id].direction_to_road * -1;
+            let dir_adjacent_to_road = building_candidates.candidates[&candidate_id]
+                .direction_to_road
+                .yx();
+            let deltas = [
+                IVec2::ZERO,
+                dir_away_from_road,
+                dir_adjacent_to_road,
+                dir_away_from_road + dir_adjacent_to_road,
+            ];
 
-                    for delta in deltas {
-                        let (chunk, pos) = chunk_cursor.get_position_delta(delta);
+            let chunk_cursor = ChunkCursor {
+                chunk_coord: building_candidates.candidates[&candidate_id].chunk_coord,
+                local_pos: building_candidates.candidates[&candidate_id].position,
+            };
 
-                        let ids_at_position =
-                            building_candidates.occupancy_map[&(chunk, pos)].clone();
+            for delta in deltas {
+                let (chunk, pos) = chunk_cursor.get_position_delta(delta);
 
-                        for id in ids_at_position {
-                            building_candidates.candidates.remove(&id);
+                let ids_at_position = building_candidates.occupancy_map[&(chunk, pos)].clone();
+
+                for id in ids_at_position {
+                    // Get candidate
+                    // Remove id from all occupancy squares it intersects
+                    let maybe_candidate = building_candidates.candidates.remove(&id);
+
+                    if let Some(candidate_to_remove) = maybe_candidate {
+                        let dir_away_from_road = candidate_to_remove.direction_to_road * -1;
+                        let dir_adjacent_to_road = candidate_to_remove.direction_to_road.yx();
+                        let deltas = [
+                            dir_away_from_road,
+                            dir_adjacent_to_road,
+                            dir_away_from_road + dir_adjacent_to_road,
+                        ];
+
+                        let chunk_cursor = ChunkCursor {
+                            chunk_coord: candidate_to_remove.chunk_coord,
+                            local_pos: candidate_to_remove.position,
+                        };
+                        for delta in deltas {
+                            let (chunk, pos) = chunk_cursor.get_position_delta(delta);
+                            building_candidates
+                                .occupancy_map
+                                .get_mut(&(chunk, pos))
+                                .map(|o| o.retain(|x| *x != candidate_to_remove.id));
                         }
-
-                        // Remove all entries in occupancy map
-                        building_candidates.occupancy_map.remove(&(chunk, pos));
-
-                        println!("Placing candidate {} at {:?}", candidate_id, &(chunk, pos));
-
-                        game_map
-                            .overmap_chunks
-                            .get_mut(&chunk)
-                            .unwrap()
-                            .overmap_tiles[xy_idx(pos.x, pos.y, OVERMAP_CHUNK_SIZE as usize)] =
-                            Some(OvermapTileType::House);
                     }
                 }
+
+                // Remove all entries in occupancy map
+                building_candidates.occupancy_map.remove(&(chunk, pos));
+
+                game_map
+                    .overmap_chunks
+                    .get_mut(&chunk)
+                    .unwrap()
+                    .overmap_tiles[xy_idx(pos.x, pos.y, OVERMAP_CHUNK_SIZE as usize)] =
+                    Some(OvermapTileType::House);
             }
         }
     }
@@ -348,6 +389,7 @@ fn expand_building_candidates(
     let mut new_occupancies: HashMap<(OvermapChunkCoords, IVec2), Vec<usize>> = HashMap::new();
 
     // For each candidate, test the surrounding tiles and add new candidates if the space is free.
+    let mut curr_candidate_id = building_candidates.id_counter;
 
     for (_, candidate) in &building_candidates.candidates {
         let dir_away_from_road = candidate.direction_to_road * -1;
@@ -363,27 +405,26 @@ fn expand_building_candidates(
         let b_delta = dir_adjacent_to_road;
         let c_delta = dir_away_from_road + dir_adjacent_to_road;
 
-        let a_is_free = chunk_cursor
-            .peek_tile(overmap_chunks, a_delta)
-            .is_none_or(|x| x != OvermapTileType::Road || x != OvermapTileType::House);
-        let b_is_free = chunk_cursor
-            .peek_tile(overmap_chunks, b_delta)
-            .is_none_or(|x| x != OvermapTileType::Road || x != OvermapTileType::House);
-        let c_is_free = chunk_cursor
-            .peek_tile(overmap_chunks, c_delta)
-            .is_none_or(|x| x != OvermapTileType::Road || x != OvermapTileType::House);
+        let a_is_free = chunk_cursor.peek_tile(overmap_chunks, a_delta).is_none();
+        //.is_none_or(|x| x != OvermapTileType::Road || x != OvermapTileType::House);
+        let b_is_free = chunk_cursor.peek_tile(overmap_chunks, b_delta).is_none();
+        //.is_none_or(|x| x != OvermapTileType::Road || x != OvermapTileType::House);
+        let c_is_free = chunk_cursor.peek_tile(overmap_chunks, c_delta).is_none();
+        //.is_none_or(|x| x != OvermapTileType::Road || x != OvermapTileType::House);
 
         match (a_is_free, b_is_free, c_is_free) {
             // RoA
             // RBC
             (true, true, true) => {
                 let new_candidate = BuildingCandidate {
-                    id: building_candidates.candidates.len() + new_candidates.len(),
+                    id: curr_candidate_id,
                     position: candidate.position,
                     chunk_coord: candidate.chunk_coord,
                     direction_to_road: candidate.direction_to_road,
                     shape: TwoByTwo,
                 };
+
+                curr_candidate_id += 1;
 
                 new_occupancies
                     .entry((candidate.chunk_coord, candidate.position))
@@ -407,12 +448,14 @@ fn expand_building_candidates(
             // Rxx
             (true, false, false) => {
                 let new_candidate = BuildingCandidate {
-                    id: building_candidates.candidates.len() + new_candidates.len(),
+                    id: curr_candidate_id,
                     position: candidate.position,
                     chunk_coord: candidate.chunk_coord,
                     direction_to_road: candidate.direction_to_road,
                     shape: OneByTwo,
                 };
+
+                curr_candidate_id += 1;
 
                 new_occupancies
                     .entry((candidate.chunk_coord, candidate.position))
@@ -428,12 +471,14 @@ fn expand_building_candidates(
             // RBx
             (false, true, false) => {
                 let new_candidate = BuildingCandidate {
-                    id: building_candidates.candidates.len() + new_candidates.len(),
+                    id: curr_candidate_id,
                     position: candidate.position,
                     chunk_coord: candidate.chunk_coord,
                     direction_to_road: candidate.direction_to_road,
                     shape: TwoByOne,
                 };
+
+                curr_candidate_id += 1;
 
                 new_occupancies
                     .entry((candidate.chunk_coord, candidate.position))
@@ -450,6 +495,7 @@ fn expand_building_candidates(
         }
     }
 
+    building_candidates.id_counter = curr_candidate_id;
     building_candidates.candidates.extend(new_candidates);
     building_candidates.occupancy_map.extend(new_occupancies);
 }
@@ -522,11 +568,21 @@ fn run_road_builder_iteration(
             for id in building_ids {
                 building_candidates.candidates.remove(id);
             }
-            building_candidates.occupancy_map.remove(&(
-                road_builders[i].chunk_cursor.chunk_coord,
-                road_builders[i].chunk_cursor.local_pos,
-            ));
         }
+
+        building_candidates.occupancy_map.remove(&(
+            road_builders[i].chunk_cursor.chunk_coord,
+            road_builders[i].chunk_cursor.local_pos,
+        ));
+
+
+        // 0, 1, 2, 3, 4, 5, 6 
+        //             X
+        // 0, 1, 2, 3, 5, 6
+        // Add one:
+        // 0, 1, 2, 3, 5, 6, 6
+
+        // we need an id counter
 
         // Set potential buildings
         for dir in road_builders[i].get_perpendicular_directions() {
@@ -539,24 +595,26 @@ fn run_road_builder_iteration(
 
             let (chunk_coord, pos) = road_builders[i].chunk_cursor.get_position_delta(dir);
 
+            let next_candidate_id = building_candidates.id_counter;
+
             let building_candidate_ids = building_candidates
                 .occupancy_map
                 .entry((chunk_coord, pos))
                 .or_insert(vec![]);
 
             if building_candidate_ids.is_empty() {
-                let candidate_id = building_candidates.candidates.keys().len();
                 let building_candidate = BuildingCandidate {
-                    id: candidate_id,
+                    id: next_candidate_id,
                     position: pos,
                     chunk_coord,
                     direction_to_road: dir * -1,
                     shape: BuildingShape::OneByOne,
                 };
-                building_candidate_ids.push(candidate_id);
+                building_candidate_ids.push(building_candidate.id);
                 building_candidates
                     .candidates
-                    .insert(candidate_id, building_candidate);
+                    .insert(building_candidate.id, building_candidate);
+                building_candidates.id_counter = next_candidate_id + 1;
             }
         }
 
