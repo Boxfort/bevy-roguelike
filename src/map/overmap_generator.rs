@@ -114,11 +114,11 @@ enum BuildingShape {
 impl BuildingShape {
     pub fn placement_chance(&self) -> i32 {
         match self {
-            BuildingShape::OneByOne => 8,
-            OneByTwo => 2,
-            TwoByOne => 4,
-            TwoByTwo => 5,
-            ThreeByThree => 0,
+            BuildingShape::OneByOne => 7,
+            OneByTwo => 4,
+            TwoByOne => 3,
+            TwoByTwo => 6,
+            ThreeByThree => 4,
         }
     }
 
@@ -147,6 +147,21 @@ impl BuildingShape {
                 ]
             }
         }
+    }
+
+    pub fn can_be_placed(
+        &self,
+        chunk_cursor: &ChunkCursor,
+        dir_to_road: IVec2,
+        overmap_chunks: &HashMap<OvermapChunkCoords, OvermapChunk>,
+    ) -> bool {
+        self.footprint(dir_to_road).iter().all(|delta| {
+            chunk_cursor
+                .peek_tile(overmap_chunks, *delta)
+                .is_none_or(|t| {
+                    t.tile_type != OvermapTileType::House && t.tile_type != OvermapTileType::Road
+                })
+        })
     }
 }
 
@@ -410,48 +425,23 @@ fn expand_building_candidates(
     let mut curr_candidate_id = building_candidates.id_counter;
 
     for (_, candidate) in &building_candidates.candidates {
-        let dir_away_from_road = candidate.direction_to_road * -1;
-        let dir_adjacent_to_road = candidate.direction_to_road.yx();
+        let shapes = [
+            OneByOne,
+            OneByTwo,
+            TwoByTwo,
+            ThreeByThree
+        ];
 
         let chunk_cursor = ChunkCursor {
             chunk_coord: candidate.chunk_coord,
-            local_pos: candidate.position,
+            local_pos: candidate.position 
         };
 
-        // Test positions
-        let a_delta = dir_away_from_road;
-        let b_delta = dir_adjacent_to_road;
-        let c_delta = dir_away_from_road + dir_adjacent_to_road;
-        let a_is_free = chunk_cursor
-            .peek_tile(overmap_chunks, a_delta)
-            .is_none_or(|x| {
-                x.tile_type != OvermapTileType::Road && x.tile_type != OvermapTileType::House
-            });
-        let b_is_free = chunk_cursor
-            .peek_tile(overmap_chunks, b_delta)
-            .is_none_or(|x| {
-                x.tile_type != OvermapTileType::Road && x.tile_type != OvermapTileType::House
-            });
-        let c_is_free = chunk_cursor
-            .peek_tile(overmap_chunks, c_delta)
-            .is_none_or(|x| {
-                x.tile_type != OvermapTileType::Road && x.tile_type != OvermapTileType::House
-            });
+        for shape in shapes {
+            if !shape.can_be_placed(&chunk_cursor, candidate.direction_to_road, overmap_chunks) {
+                continue
+            }
 
-        let shape = match (a_is_free, b_is_free, c_is_free) {
-            // RoA
-            // RBC
-            (true, true, true) => Some(TwoByTwo),
-            // RoA
-            // Rxx
-            (true, false, false) => Some(OneByTwo),
-            // Rox
-            // RBx
-            (false, true, false) => Some(TwoByOne),
-            _ => None,
-        };
-
-        if let Some(shape) = shape {
             for delta in shape.footprint(candidate.direction_to_road) {
                 let pos = chunk_cursor.get_position_delta(delta);
                 new_occupancies
@@ -477,7 +467,11 @@ fn expand_building_candidates(
     building_candidates.candidates.extend(new_candidates);
 
     for (key, mut values) in new_occupancies {
-        building_candidates.occupancy_map.entry(key).or_default().append(&mut values);
+        building_candidates
+            .occupancy_map
+            .entry(key)
+            .or_default()
+            .append(&mut values);
     }
 }
 
