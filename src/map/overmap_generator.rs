@@ -37,6 +37,11 @@ pub enum OvermapTileType {
     House,
 }
 
+pub struct OvermapTile {
+    tile_type: OvermapTileType,
+    glyph: i32
+}
+
 #[derive(Debug)]
 pub struct OvermapChunk {
     pub coordinates: OvermapChunkCoords,
@@ -111,6 +116,31 @@ enum BuildingShape {
     OneByTwo,
     TwoByOne,
     TwoByTwo,
+}
+
+impl BuildingShape {
+    pub fn placement_chance(&self) -> i32 {
+        match self {
+            BuildingShape::OneByOne => 8,
+            OneByTwo => 1,
+            TwoByOne => 2,
+            TwoByTwo => 4,
+        }
+    }
+
+    pub fn footprint(&self, dir_to_road: IVec2) -> Vec<IVec2> {
+        let away = dir_to_road * -1;
+        let adjacent = dir_to_road.yx();
+
+        match self {
+            Self::OneByOne => vec![IVec2::ZERO],
+            Self::OneByTwo => vec![IVec2::ZERO, away],
+            Self::TwoByOne => vec![IVec2::ZERO, adjacent],
+            Self::TwoByTwo => {
+                vec![IVec2::ZERO, away, adjacent, away + adjacent]
+            }
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -295,69 +325,62 @@ fn generate_cities(
             // Expand the building candidates
             expand_building_candidates(&mut building_candidates, &mut game_map.overmap_chunks);
 
-            let mut candidate_keys: Vec<_> =
-                building_candidates.candidates.keys().copied().collect();
-
-
             // DEBUG
-            debug_draw_2by2_houses(game_map, &mut building_candidates, candidate_keys);
+            draw_houses(game_map, &mut building_candidates, rng);
         }
     }
 }
 
-fn debug_draw_2by2_houses(
+fn draw_houses(
     game_map: &mut GameMap,
     building_candidates: &mut BuildingCandidates,
-    mut candidate_keys: Vec<usize>,
+    rng: &mut ChaCha8Rng,
 ) {
+    let mut candidate_keys: Vec<_> = building_candidates.candidates.keys().copied().collect();
+
     while let Some(candidate_id) = candidate_keys.pop() {
+        // If the candidate was removed in another iteration continue
         if building_candidates.candidates.get(&candidate_id).is_none() {
             continue;
         }
 
         // If we decide to place the building
-        if building_candidates.candidates[&candidate_id].shape == BuildingShape::TwoByTwo {
-            let dir_away_from_road =
-                building_candidates.candidates[&candidate_id].direction_to_road * -1;
-            let dir_adjacent_to_road = building_candidates.candidates[&candidate_id]
-                .direction_to_road
-                .yx();
-            let deltas = [
-                IVec2::ZERO,
-                dir_away_from_road,
-                dir_adjacent_to_road,
-                dir_away_from_road + dir_adjacent_to_road,
-            ];
-
+        if rng.random_range(0..10)
+            < building_candidates.candidates[&candidate_id]
+                .shape
+                .placement_chance()
+        {
             let chunk_cursor = ChunkCursor {
                 chunk_coord: building_candidates.candidates[&candidate_id].chunk_coord,
                 local_pos: building_candidates.candidates[&candidate_id].position,
             };
 
-            for delta in deltas {
+            // For all the squares in the buildings footprint
+            for delta in building_candidates.candidates[&candidate_id]
+                .shape
+                .footprint(building_candidates.candidates[&candidate_id].direction_to_road)
+            {
                 let (chunk, pos) = chunk_cursor.get_position_delta(delta);
 
+                // Remove ALL candididates in the occupancy map
                 let ids_at_position = building_candidates.occupancy_map[&(chunk, pos)].clone();
-
                 for id in ids_at_position {
                     // Get candidate
                     // Remove id from all occupancy squares it intersects
                     let maybe_candidate = building_candidates.candidates.remove(&id);
 
+                        /*
                     if let Some(candidate_to_remove) = maybe_candidate {
-                        let dir_away_from_road = candidate_to_remove.direction_to_road * -1;
-                        let dir_adjacent_to_road = candidate_to_remove.direction_to_road.yx();
-                        let deltas = [
-                            dir_away_from_road,
-                            dir_adjacent_to_road,
-                            dir_away_from_road + dir_adjacent_to_road,
-                        ];
-
+                        //println!("REMOVED CANDIDATE {:?}", candidate_to_remove.id);
                         let chunk_cursor = ChunkCursor {
                             chunk_coord: candidate_to_remove.chunk_coord,
                             local_pos: candidate_to_remove.position,
                         };
-                        for delta in deltas {
+
+                        for delta in candidate_to_remove
+                            .shape
+                            .footprint(candidate_to_remove.direction_to_road)
+                        {
                             let (chunk, pos) = chunk_cursor.get_position_delta(delta);
                             building_candidates
                                 .occupancy_map
@@ -365,10 +388,11 @@ fn debug_draw_2by2_houses(
                                 .map(|o| o.retain(|x| *x != candidate_to_remove.id));
                         }
                     }
+                        */
                 }
 
                 // Remove all entries in occupancy map
-                building_candidates.occupancy_map.remove(&(chunk, pos));
+                //building_candidates.occupancy_map.remove(&(chunk, pos));
 
                 game_map
                     .overmap_chunks
@@ -404,94 +428,48 @@ fn expand_building_candidates(
         let a_delta = dir_away_from_road;
         let b_delta = dir_adjacent_to_road;
         let c_delta = dir_away_from_road + dir_adjacent_to_road;
+        let a_is_free = chunk_cursor
+            .peek_tile(overmap_chunks, a_delta)
+            .is_none_or(|x| x != OvermapTileType::Road || x != OvermapTileType::House);
+        let b_is_free = chunk_cursor
+            .peek_tile(overmap_chunks, b_delta)
+            .is_none_or(|x| x != OvermapTileType::Road || x != OvermapTileType::House);
+        let c_is_free = chunk_cursor
+            .peek_tile(overmap_chunks, c_delta)
+            .is_none_or(|x| x != OvermapTileType::Road || x != OvermapTileType::House);
 
-        let a_is_free = chunk_cursor.peek_tile(overmap_chunks, a_delta).is_none();
-        //.is_none_or(|x| x != OvermapTileType::Road || x != OvermapTileType::House);
-        let b_is_free = chunk_cursor.peek_tile(overmap_chunks, b_delta).is_none();
-        //.is_none_or(|x| x != OvermapTileType::Road || x != OvermapTileType::House);
-        let c_is_free = chunk_cursor.peek_tile(overmap_chunks, c_delta).is_none();
-        //.is_none_or(|x| x != OvermapTileType::Road || x != OvermapTileType::House);
-
-        match (a_is_free, b_is_free, c_is_free) {
+        let shape = match (a_is_free, b_is_free, c_is_free) {
             // RoA
             // RBC
-            (true, true, true) => {
-                let new_candidate = BuildingCandidate {
-                    id: curr_candidate_id,
-                    position: candidate.position,
-                    chunk_coord: candidate.chunk_coord,
-                    direction_to_road: candidate.direction_to_road,
-                    shape: TwoByTwo,
-                };
-
-                curr_candidate_id += 1;
-
-                new_occupancies
-                    .entry((candidate.chunk_coord, candidate.position))
-                    .or_default()
-                    .push(new_candidate.id);
-                new_occupancies
-                    .entry(chunk_cursor.get_position_delta(a_delta))
-                    .or_default()
-                    .push(new_candidate.id);
-                new_occupancies
-                    .entry(chunk_cursor.get_position_delta(b_delta))
-                    .or_default()
-                    .push(new_candidate.id);
-                new_occupancies
-                    .entry(chunk_cursor.get_position_delta(c_delta))
-                    .or_default()
-                    .push(new_candidate.id);
-                new_candidates.insert(new_candidate.id, new_candidate);
-            }
+            (true, true, true) => Some(TwoByTwo),
             // RoA
             // Rxx
-            (true, false, false) => {
-                let new_candidate = BuildingCandidate {
-                    id: curr_candidate_id,
-                    position: candidate.position,
-                    chunk_coord: candidate.chunk_coord,
-                    direction_to_road: candidate.direction_to_road,
-                    shape: OneByTwo,
-                };
-
-                curr_candidate_id += 1;
-
-                new_occupancies
-                    .entry((candidate.chunk_coord, candidate.position))
-                    .or_default()
-                    .push(new_candidate.id);
-                new_occupancies
-                    .entry(chunk_cursor.get_position_delta(a_delta))
-                    .or_default()
-                    .push(new_candidate.id);
-                new_candidates.insert(new_candidate.id, new_candidate);
-            }
+            (true, false, false) => Some(OneByTwo),
             // Rox
             // RBx
-            (false, true, false) => {
-                let new_candidate = BuildingCandidate {
-                    id: curr_candidate_id,
-                    position: candidate.position,
-                    chunk_coord: candidate.chunk_coord,
-                    direction_to_road: candidate.direction_to_road,
-                    shape: TwoByOne,
-                };
+            (false, true, false) => Some(TwoByOne),
+            _ => None,
+        };
 
-                curr_candidate_id += 1;
-
+        if let Some(shape) = shape {
+            for delta in shape.footprint(candidate.direction_to_road) {
+                let pos = chunk_cursor.get_position_delta(delta);
                 new_occupancies
-                    .entry((candidate.chunk_coord, candidate.position))
+                    .entry(pos)
                     .or_default()
-                    .push(new_candidate.id);
-                new_occupancies
-                    .entry(chunk_cursor.get_position_delta(b_delta))
-                    .or_default()
-                    .push(new_candidate.id);
-                new_candidates.insert(new_candidate.id, new_candidate);
+                    .push(curr_candidate_id);
             }
-            // Other shapes not valid
-            _ => (),
+
+            let new_candidate = BuildingCandidate {
+                id: curr_candidate_id,
+                position: candidate.position,
+                chunk_coord: candidate.chunk_coord,
+                direction_to_road: candidate.direction_to_road,
+                shape,
+            };
+
+            new_candidates.insert(curr_candidate_id, new_candidate);
+            curr_candidate_id += 1;
         }
     }
 
@@ -574,15 +552,6 @@ fn run_road_builder_iteration(
             road_builders[i].chunk_cursor.chunk_coord,
             road_builders[i].chunk_cursor.local_pos,
         ));
-
-
-        // 0, 1, 2, 3, 4, 5, 6 
-        //             X
-        // 0, 1, 2, 3, 5, 6
-        // Add one:
-        // 0, 1, 2, 3, 5, 6, 6
-
-        // we need an id counter
 
         // Set potential buildings
         for dir in road_builders[i].get_perpendicular_directions() {
@@ -702,14 +671,7 @@ fn connect_cities_with_road(
     city_b: &City,
     rng: &mut ChaCha8Rng,
 ) {
-    insert_road_tiles_between_cities(
-        &mut game_map.overmap_chunks,
-        city_a.position,
-        city_a.overmap_chunk_coordinate,
-        city_b.position,
-        city_b.overmap_chunk_coordinate,
-        rng,
-    );
+    insert_road_tiles_between_cities(&mut game_map.overmap_chunks, city_a, city_b, rng);
 
     let [current_chunk, neighbouring_chunk] = game_map
         .overmap_chunks
@@ -760,12 +722,15 @@ fn add_cities_to_chunk(overmap_chunk: &mut OvermapChunk, rng: &mut ChaCha8Rng) {
 
 fn insert_road_tiles_between_cities(
     overmap_chunks: &mut HashMap<OvermapChunkCoords, OvermapChunk>,
-    start_city_pos: IVec2,
-    start_city_chunk: OvermapChunkCoords,
-    end_city_pos: IVec2,
-    end_city_chunk: OvermapChunkCoords,
+    city_a: &City,
+    city_b: &City,
     rng: &mut ChaCha8Rng,
 ) {
+    let start_city_pos: IVec2 = city_a.position;
+    let start_city_chunk: OvermapChunkCoords = city_a.overmap_chunk_coordinate;
+    let end_city_pos: IVec2 = city_b.position;
+    let end_city_chunk: OvermapChunkCoords = city_b.overmap_chunk_coordinate;
+
     let mut cursor = ChunkCursor {
         chunk_coord: start_city_chunk,
         local_pos: IVec2 {
@@ -798,12 +763,12 @@ fn insert_road_tiles_between_cities(
 
     // draw the exit road
     if distance_between_cities.x > distance_between_cities.y {
-        for _ in 0..distance_between_cities.x.min(32) * direction.x {
+        for _ in 0..distance_between_cities.x.min(city_a.size / 2) * direction.x {
             cursor.step_x(direction.x);
             cursor.set_tile(overmap_chunks, OvermapTileType::Road);
         }
     } else {
-        for _ in 0..distance_between_cities.y.min(32) * direction.y {
+        for _ in 0..distance_between_cities.y.min(city_a.size / 2) * direction.y {
             cursor.step_y(direction.y);
             cursor.set_tile(overmap_chunks, OvermapTileType::Road);
         }
@@ -815,9 +780,9 @@ fn insert_road_tiles_between_cities(
 
     // get entrance road start pos
     if distance_to_end.x > distance_to_end.y {
-        distance_to_end.x -= distance_to_end.x.min(32)
+        distance_to_end.x -= distance_to_end.x.min(city_b.size / 2)
     } else {
-        distance_to_end.y -= distance_to_end.y.min(32)
+        distance_to_end.y -= distance_to_end.y.min(city_b.size / 2)
     };
 
     while distance_to_end.element_sum() > 0 {
